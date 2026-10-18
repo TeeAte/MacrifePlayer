@@ -1,6 +1,6 @@
 # Macrife Player
 
-Macrife Player 是一个面向 macOS 的视频播放器与高质量播放增强工具，聚焦于本地视频播放、实时视频采集、字幕处理，以及 GPU 加速的画质提升与补帧。
+Macrife Player 是一个面向 macOS 的专用补帧视频播放器，聚焦于本地视频播放、实时视频采集、字幕处理，以及 GPU 加速的画质提升与补帧。
 
 项目中包含 FFmpeg 相关解封装/解码能力、Metal 渲染管线、RIFE 补帧、Anime4K 以及 MetalFX 超分等模块，目标是提供更高质量、更流畅的视频观看体验。
 
