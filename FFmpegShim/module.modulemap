@@ -1,0 +1,38 @@
+//  FFmpegShim/module.modulemap
+//
+//  把 FFmpeg 7.1 的 C 接口暴露成 Swift 可 import 的模块 `CFFmpeg`。
+//
+//  接入方式（由 _reverse/make_project.py 写入 project.pbxproj）：
+//    HEADER_SEARCH_PATHS   = $(SRCROOT)/FFmpegShim/include
+//    SWIFT_INCLUDE_PATHS   = $(SRCROOT)/FFmpegShim
+//    LIBRARY_SEARCH_PATHS  = $(SRCROOT)/Frameworks
+//
+//  用法：
+//    import CFFmpeg
+//
+//  链接目标为 bundle 内自带的 dylib（install name 是 @rpath/...），运行时由
+//  LD_RUNPATH_SEARCH_PATHS = @executable_path/../Frameworks 解析。
+
+module CFFmpeg {
+    header "ffmpeg_shim.h"
+    export *
+}
+
+// libass 独立成一个模块，不并进 CFFmpeg。
+//
+// 为什么分开：libass 不是 FFmpeg 的一部分（它是独立的字幕排版/光栅化库），
+// bundle 里也是一个独立的 `libass.9.dylib`。混在一个模块里会掩盖这么一件事：
+// **libass 是可选依赖** —— 没有它，FFmpeg 的解封装/解码链路照样完整
+// （这正是 Phase 3 之前的状态）。
+//
+// 版本对齐（已实测核对）：
+//   头文件  LIBASS_VERSION 0x01701000  (v0.17.1)
+//   dylib   compatibility 13.0.0 / current 13.1.0
+//   两者同版本，ABI 一致。
+//
+// 用法：
+//   import CAss
+module CAss {
+    header "include/ass/ass.h"
+    export *
+}

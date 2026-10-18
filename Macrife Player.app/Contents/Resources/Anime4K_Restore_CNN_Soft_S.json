@@ -1,0 +1,118 @@
+{
+  "shader": "Anime4K_Restore_CNN_Soft_S.glsl",
+  "version": "2.0",
+  "graph_format": "metal4_tensor_cnn_v2",
+  "layers": [
+    {
+      "index": 0,
+      "name": "Anime4K-v4.0-Restore-CNN-Soft-(S)-Conv-4x3x3x3",
+      "output_name": "conv2d_tf",
+      "input_sources": [
+        "MAIN"
+      ],
+      "feature_groups": [
+        {
+          "source": "MAIN",
+          "activation": "raw"
+        }
+      ],
+      "weights_offset": 0,
+      "kernel_size": 3,
+      "input_channels": 3,
+      "output_channels": 4,
+      "has_signed_relu": false,
+      "has_residual": false,
+      "weights_size": 216,
+      "bias_offset": 216,
+      "bias_size": 8
+    },
+    {
+      "index": 1,
+      "name": "Anime4K-v4.0-Restore-CNN-Soft-(S)-Conv-4x3x3x8",
+      "output_name": "conv2d_1_tf",
+      "input_sources": [
+        "conv2d_tf"
+      ],
+      "feature_groups": [
+        {
+          "source": "conv2d_tf",
+          "activation": "pos"
+        },
+        {
+          "source": "conv2d_tf",
+          "activation": "neg"
+        }
+      ],
+      "weights_offset": 224,
+      "kernel_size": 3,
+      "input_channels": 8,
+      "output_channels": 4,
+      "has_signed_relu": true,
+      "has_residual": false,
+      "weights_size": 576,
+      "bias_offset": 800,
+      "bias_size": 8
+    },
+    {
+      "index": 2,
+      "name": "Anime4K-v4.0-Restore-CNN-Soft-(S)-Conv-4x3x3x8",
+      "output_name": "conv2d_2_tf",
+      "input_sources": [
+        "conv2d_1_tf"
+      ],
+      "feature_groups": [
+        {
+          "source": "conv2d_1_tf",
+          "activation": "pos"
+        },
+        {
+          "source": "conv2d_1_tf",
+          "activation": "neg"
+        }
+      ],
+      "weights_offset": 808,
+      "kernel_size": 3,
+      "input_channels": 8,
+      "output_channels": 4,
+      "has_signed_relu": true,
+      "has_residual": false,
+      "weights_size": 576,
+      "bias_offset": 1384,
+      "bias_size": 8
+    },
+    {
+      "index": 3,
+      "name": "Anime4K-v4.0-Restore-CNN-Soft-(S)-Conv-3x3x3x8",
+      "output_name": "MAIN",
+      "input_sources": [
+        "conv2d_2_tf"
+      ],
+      "feature_groups": [
+        {
+          "source": "conv2d_2_tf",
+          "activation": "pos"
+        },
+        {
+          "source": "conv2d_2_tf",
+          "activation": "neg"
+        }
+      ],
+      "weights_offset": 1392,
+      "kernel_size": 3,
+      "input_channels": 8,
+      "output_channels": 4,
+      "has_signed_relu": true,
+      "has_residual": true,
+      "weights_size": 576,
+      "bias_offset": 1968,
+      "bias_size": 8
+    }
+  ],
+  "input_shape": [
+    1,
+    4,
+    -1,
+    -1
+  ],
+  "output_channels": 4
+}
