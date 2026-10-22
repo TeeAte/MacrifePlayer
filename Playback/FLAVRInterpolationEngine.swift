@@ -72,6 +72,7 @@ final class FLAVRInterpolationEngine {
             texture2d<float, access::sample> tex1 [[texture(1)]],
             texture2d<float, access::write> motionTex [[texture(2)]],
             constant uint &blockSize [[buffer(0)]],
+            constant uint &searchRadiiCount [[buffer(1)]],
             uint2 gid [[thread_position_in_grid]])
         {
             if (gid.x >= motionTex.get_width() || gid.y >= motionTex.get_height()) return;
@@ -102,9 +103,10 @@ final class FLAVRInterpolationEngine {
             float bestCost = sadZero;
             float2 bestMotion = float2(0.0f, 0.0f);
 
-            // 2. 菱形同心圆搜索（由内向外扩散，优先就近匹配）
+            // 2. 菱形同心圆搜索（根据 searchRadiiCount 动态调整半径层次：Fast 模式 2 层，高画质模式 4 层）
             const int radii[4] = { 3, 6, 10, 16 };
-            for (int r = 0; r < 4; r++) {
+            uint maxRadii = clamp(searchRadiiCount, 1u, 4u);
+            for (uint r = 0; r < maxRadii; r++) {
                 int radius = radii[r];
                 const int2 offsets[8] = {
                     int2( radius,  0), int2(-radius,  0), int2( 0,  radius), int2( 0, -radius),
@@ -173,6 +175,7 @@ final class FLAVRInterpolationEngine {
             texture2d<float, access::sample> motionTex [[texture(2)]],
             texture2d<float, access::write> dst [[texture(3)]],
             constant float &alpha [[buffer(0)]],
+            constant uint &kernelMode [[buffer(1)]],
             uint2 gid [[thread_position_in_grid]])
         {
             if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
@@ -215,9 +218,23 @@ final class FLAVRInterpolationEngine {
             float y0 = src0.sample(s, coord0).r;
             float y1 = src1.sample(s, coord1).r;
 
-            // FLAVR 3D 时空非线性平滑加权
+            // FLAVR 3D 时空非线性平滑加权与卷积核模式
             float t = alpha;
-            float smoothT = t * t * (3.0f - 2.0f * t);
+            float smoothT = t * t * (3.0f - 2.0f * t); // 默认 Hermite-Lagrange 三次平滑
+            if (kernelMode == 1) {
+                // Catmull-Rom 锐化核 (发丝与边缘增强)
+                float t2 = t * t;
+                float t3 = t2 * t;
+                float baseT = 3.0f * t2 - 2.0f * t3;
+                float sharpBoost = (t - 0.5f) * (1.0f - 4.0f * (t - 0.5f) * (t - 0.5f)) * 0.18f;
+                smoothT = clamp(baseT + sharpBoost, 0.0f, 1.0f);
+            } else if (kernelMode == 2) {
+                // B-Spline 柔和核 (抑制噪点与胶片颗粒)
+                float t2 = t * t;
+                float t3 = t2 * t;
+                smoothT = (t < 0.5f) ? (4.0f * t3) : (1.0f - 4.0f * (1.0f - t) * (1.0f - t) * (1.0f - t));
+            }
+
             float yOut = mix(y0, y1, smoothT);
             dst.write(float4(yOut, 0.0f, 0.0f, 1.0f), gid);
         }
@@ -228,6 +245,7 @@ final class FLAVRInterpolationEngine {
             texture2d<float, access::sample> motionTex [[texture(2)]],
             texture2d<float, access::write> dst [[texture(3)]],
             constant float &alpha [[buffer(0)]],
+            constant uint &kernelMode [[buffer(1)]],
             uint2 gid [[thread_position_in_grid]])
         {
             if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
@@ -270,6 +288,18 @@ final class FLAVRInterpolationEngine {
 
             float t = alpha;
             float smoothT = t * t * (3.0f - 2.0f * t);
+            if (kernelMode == 1) {
+                float t2 = t * t;
+                float t3 = t2 * t;
+                float baseT = 3.0f * t2 - 2.0f * t3;
+                float sharpBoost = (t - 0.5f) * (1.0f - 4.0f * (t - 0.5f) * (t - 0.5f)) * 0.18f;
+                smoothT = clamp(baseT + sharpBoost, 0.0f, 1.0f);
+            } else if (kernelMode == 2) {
+                float t2 = t * t;
+                float t3 = t2 * t;
+                smoothT = (t < 0.5f) ? (4.0f * t3) : (1.0f - 4.0f * (1.0f - t) * (1.0f - t) * (1.0f - t));
+            }
+
             float2 uvOut = mix(uv0, uv1, smoothT);
             dst.write(float4(uvOut.r, uvOut.g, 0.0f, 1.0f), gid);
         }
@@ -289,7 +319,7 @@ final class FLAVRInterpolationEngine {
     }
 
     // MARK: - 原版 RIFEFrameSimilarityDetector 帧相似度检测
-    private func areFramesSimilar(_ b0: CVPixelBuffer, _ b1: CVPixelBuffer) -> Bool {
+    private func areFramesSimilar(_ b0: CVPixelBuffer, _ b1: CVPixelBuffer, threshold: Double = 0.001) -> Bool {
         let w = CVPixelBufferGetWidth(b0)
         let h = CVPixelBufferGetHeight(b0)
         guard w == CVPixelBufferGetWidth(b1), h == CVPixelBufferGetHeight(b1), w > 0, h > 0 else {
@@ -363,7 +393,7 @@ final class FLAVRInterpolationEngine {
 
         guard sampleCount > 0 else { return false }
         let mae = (diffSum / sampleCount) / 255.0
-        return mae < 0.003
+        return mae < threshold
     }
 
     private var timelineCursorPTS: Double = -1.0
@@ -417,7 +447,9 @@ final class FLAVRInterpolationEngine {
                        CVPixelBufferGetPixelFormatType(incoming.pixelBuffer) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
         ensurePixelBufferPool(width: width, height: height, is10Bit: is10Bit)
 
-        let isSimilar = settings.rifeStaticFrameSkip && areFramesSimilar(f0.pixelBuffer, f1.pixelBuffer)
+        let isSimilar = settings.rifeStaticFrameSkip && areFramesSimilar(f0.pixelBuffer, f1.pixelBuffer, threshold: min(settings.rifeStaticThreshold * 0.05, 0.001))
+        let kernelMode = settings.flavrKernelMode
+        let isFast = (settings.rifeModel == .flavrFast)
 
         var isCut = false
         let currentLuma = sampleDownscaledLuma(from: incoming.pixelBuffer)
@@ -470,7 +502,9 @@ final class FLAVRInterpolationEngine {
                         frame1: f1.pixelBuffer,
                         alpha: alpha,
                         width: width,
-                        height: height
+                        height: height,
+                        kernelMode: kernelMode,
+                        isFast: isFast
                     )
                 }
 
@@ -503,7 +537,9 @@ final class FLAVRInterpolationEngine {
                         frame1: f1.pixelBuffer,
                         alpha: alpha,
                         width: width,
-                        height: height
+                        height: height,
+                        kernelMode: kernelMode,
+                        isFast: isFast
                     )
                 }
 
@@ -544,38 +580,72 @@ final class FLAVRInterpolationEngine {
         frame1: CVPixelBuffer,
         alpha: Float,
         width: Int,
-        height: Int
+        height: Int,
+        kernelMode: FLAVRKernelMode,
+        isFast: Bool
     ) -> CVPixelBuffer? {
-        guard let pool = pixelBufferPool,
-              let psoMotion = motionPipelineState,
+        guard let psoMotion = motionPipelineState,
               let psoWarpY = warpYPipelineState,
               let psoWarpUV = warpUVPipelineState,
               let queue = commandQueue,
               let device = device,
               let cache = textureCache else { return nil }
 
-        var dstBuffer: CVPixelBuffer?
-        let rc = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &dstBuffer)
-        guard rc == kCVReturnSuccess, let dst = dstBuffer else { return nil }
-
         let is0_10Bit = (CVPixelBufferGetPixelFormatType(frame0) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
                          CVPixelBufferGetPixelFormatType(frame0) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
         let is1_10Bit = (CVPixelBufferGetPixelFormatType(frame1) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
                          CVPixelBufferGetPixelFormatType(frame1) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+        let isTarget10Bit = is0_10Bit || is1_10Bit
+
+        ensurePixelBufferPool(width: width, height: height, is10Bit: isTarget10Bit)
+
+        var dstBuffer: CVPixelBuffer?
+        if let pool = pixelBufferPool {
+            _ = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &dstBuffer)
+        }
+        if dstBuffer == nil {
+            let formatType = isTarget10Bit ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            let pbAttrs: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: formatType,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
+                kCVPixelBufferMetalCompatibilityKey: true
+            ]
+            CVPixelBufferCreate(kCFAllocatorDefault, width, height, formatType, pbAttrs as CFDictionary, &dstBuffer)
+        }
+        guard let dst = dstBuffer else { return nil }
+
         let isDst10Bit = (CVPixelBufferGetPixelFormatType(dst) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
                           CVPixelBufferGetPixelFormatType(dst) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
 
-        guard let src0Y = makeTexture(from: frame0, plane: 0, pixelFormat: is0_10Bit ? .r16Unorm : .r8Unorm, width: width, height: height, cache: cache),
-              let src0UV = makeTexture(from: frame0, plane: 1, pixelFormat: is0_10Bit ? .rg16Unorm : .rg8Unorm, width: width / 2, height: height / 2, cache: cache),
-              let src1Y = makeTexture(from: frame1, plane: 0, pixelFormat: is1_10Bit ? .r16Unorm : .r8Unorm, width: width, height: height, cache: cache),
-              let src1UV = makeTexture(from: frame1, plane: 1, pixelFormat: is1_10Bit ? .rg16Unorm : .rg8Unorm, width: width / 2, height: height / 2, cache: cache),
-              let dstY = makeTexture(from: dst, plane: 0, pixelFormat: isDst10Bit ? .r16Unorm : .r8Unorm, width: width, height: height, cache: cache),
-              let dstUV = makeTexture(from: dst, plane: 1, pixelFormat: isDst10Bit ? .rg16Unorm : .rg8Unorm, width: width / 2, height: height / 2, cache: cache) else {
+        let f0Plane0W = CVPixelBufferGetWidthOfPlane(frame0, 0)
+        let f0Plane0H = CVPixelBufferGetHeightOfPlane(frame0, 0)
+        let f0Plane1W = CVPixelBufferGetWidthOfPlane(frame0, 1)
+        let f0Plane1H = CVPixelBufferGetHeightOfPlane(frame0, 1)
+
+        let f1Plane0W = CVPixelBufferGetWidthOfPlane(frame1, 0)
+        let f1Plane0H = CVPixelBufferGetHeightOfPlane(frame1, 0)
+        let f1Plane1W = CVPixelBufferGetWidthOfPlane(frame1, 1)
+        let f1Plane1H = CVPixelBufferGetHeightOfPlane(frame1, 1)
+
+        let dstPlane0W = CVPixelBufferGetWidthOfPlane(dst, 0)
+        let dstPlane0H = CVPixelBufferGetHeightOfPlane(dst, 0)
+        let dstPlane1W = CVPixelBufferGetWidthOfPlane(dst, 1)
+        let dstPlane1H = CVPixelBufferGetHeightOfPlane(dst, 1)
+
+        guard let src0Y = makeTexture(from: frame0, plane: 0, pixelFormat: is0_10Bit ? .r16Unorm : .r8Unorm, width: f0Plane0W, height: f0Plane0H, cache: cache, usage: .shaderRead),
+              let src0UV = makeTexture(from: frame0, plane: 1, pixelFormat: is0_10Bit ? .rg16Unorm : .rg8Unorm, width: f0Plane1W, height: f0Plane1H, cache: cache, usage: .shaderRead),
+              let src1Y = makeTexture(from: frame1, plane: 0, pixelFormat: is1_10Bit ? .r16Unorm : .r8Unorm, width: f1Plane0W, height: f1Plane0H, cache: cache, usage: .shaderRead),
+              let src1UV = makeTexture(from: frame1, plane: 1, pixelFormat: is1_10Bit ? .rg16Unorm : .rg8Unorm, width: f1Plane1W, height: f1Plane1H, cache: cache, usage: .shaderRead),
+              let dstY = makeTexture(from: dst, plane: 0, pixelFormat: isDst10Bit ? .r16Unorm : .r8Unorm, width: dstPlane0W, height: dstPlane0H, cache: cache, usage: [.shaderRead, .shaderWrite]),
+              let dstUV = makeTexture(from: dst, plane: 1, pixelFormat: isDst10Bit ? .rg16Unorm : .rg8Unorm, width: dstPlane1W, height: dstPlane1H, cache: cache, usage: [.shaderRead, .shaderWrite]) else {
             return nil
         }
 
-        // 4K 超清自适应 32x32 宏块，1080p 使用 16x16
-        var uintBlockSize: UInt32 = (width > 2560) ? 32 : 16
+        // 4K 超清自适应 32x32 宏块，Fast 模式 24x24，标准 16x16
+        var uintBlockSize: UInt32 = (width > 2560) ? 32 : (isFast ? 24 : 16)
+        var uintSearchRadii: UInt32 = isFast ? 2 : 4
         let blockSize = Int(uintBlockSize)
         let motionW = max(1, (width + blockSize - 1) / blockSize)
         let motionH = max(1, (height + blockSize - 1) / blockSize)
@@ -590,6 +660,7 @@ final class FLAVRInterpolationEngine {
             encMotion.setTexture(src1Y, index: 1)
             encMotion.setTexture(motionTex, index: 2)
             encMotion.setBytes(&uintBlockSize, length: MemoryLayout<UInt32>.size, index: 0)
+            encMotion.setBytes(&uintSearchRadii, length: MemoryLayout<UInt32>.size, index: 1)
 
             let w = min(psoMotion.threadExecutionWidth, 16)
             let h = max(1, min(psoMotion.maxTotalThreadsPerThreadgroup / w, 16))
@@ -604,6 +675,12 @@ final class FLAVRInterpolationEngine {
         }
 
         var mutableAlpha = alpha
+        var uintKernelMode: UInt32 = 0
+        switch kernelMode {
+        case .hermite:    uintKernelMode = 0
+        case .catmullRom: uintKernelMode = 1
+        case .bSpline:    uintKernelMode = 2
+        }
 
         if let encWarpY = cb.makeComputeCommandEncoder() {
             encWarpY.label = "FLAVR_Warp_Y"
@@ -613,13 +690,14 @@ final class FLAVRInterpolationEngine {
             encWarpY.setTexture(motionTex, index: 2)
             encWarpY.setTexture(dstY, index: 3)
             encWarpY.setBytes(&mutableAlpha, length: MemoryLayout<Float>.size, index: 0)
+            encWarpY.setBytes(&uintKernelMode, length: MemoryLayout<UInt32>.size, index: 1)
 
             let w = min(psoWarpY.threadExecutionWidth, 16)
             let h = max(1, min(psoWarpY.maxTotalThreadsPerThreadgroup / w, 16))
             let threadsPerGroup = MTLSize(width: w, height: h, depth: 1)
             let threadgroups = MTLSize(
-                width: (width + w - 1) / w,
-                height: (height + h - 1) / h,
+                width: (dstPlane0W + w - 1) / w,
+                height: (dstPlane0H + h - 1) / h,
                 depth: 1
             )
             encWarpY.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
@@ -634,9 +712,10 @@ final class FLAVRInterpolationEngine {
             encWarpUV.setTexture(motionTex, index: 2)
             encWarpUV.setTexture(dstUV, index: 3)
             encWarpUV.setBytes(&mutableAlpha, length: MemoryLayout<Float>.size, index: 0)
+            encWarpUV.setBytes(&uintKernelMode, length: MemoryLayout<UInt32>.size, index: 1)
 
-            let uvW = width / 2
-            let uvH = height / 2
+            let uvW = dstPlane1W
+            let uvH = dstPlane1H
             let w = min(psoWarpUV.threadExecutionWidth, 16)
             let h = max(1, min(psoWarpUV.maxTotalThreadsPerThreadgroup / w, 16))
             let threadsPerGroup = MTLSize(width: w, height: h, depth: 1)
@@ -650,8 +729,7 @@ final class FLAVRInterpolationEngine {
         }
 
         cb.commit()
-        // 调度就绪后立即返回，消除 GPU 同步锁死解码线程
-        cb.waitUntilScheduled()
+        cb.waitUntilCompleted()
 
         return dst
     }
@@ -662,14 +740,18 @@ final class FLAVRInterpolationEngine {
         pixelFormat: MTLPixelFormat,
         width: Int,
         height: Int,
-        cache: CVMetalTextureCache
+        cache: CVMetalTextureCache,
+        usage: MTLTextureUsage = .shaderRead
     ) -> MTLTexture? {
         var cvTex: CVMetalTexture?
+        let attrs: [CFString: Any] = [
+            kCVMetalTextureUsage: usage.rawValue
+        ]
         let rc = CVMetalTextureCacheCreateTextureFromImage(
             kCFAllocatorDefault,
             cache,
             pb,
-            nil,
+            attrs as CFDictionary,
             pixelFormat,
             width,
             height,
@@ -735,7 +817,7 @@ final class FLAVRInterpolationEngine {
         poolHeight = height
         poolIs10Bit = is10Bit
         let poolAttrs: [CFString: Any] = [
-            kCVPixelBufferPoolMinimumBufferCountKey: 32
+            kCVPixelBufferPoolMinimumBufferCountKey: 64
         ]
         let formatType = is10Bit ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         let pbAttrs: [CFString: Any] = [
