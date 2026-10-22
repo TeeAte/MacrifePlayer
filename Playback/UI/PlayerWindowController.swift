@@ -350,8 +350,8 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
     }
 
     func openSubtitleFile(_ url: URL) {
-        showStageNotice("字幕",
-                        detail: "外挂字幕加载与 libass 渲染属 Phase 3。")
+        container.loadExternalSubtitle(url: url)
+        container.showStatusPill("已加载字幕: \(url.lastPathComponent)", autoHideDelay: 2.5)
     }
 
     func openAnime4KPanel() {

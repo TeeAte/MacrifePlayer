@@ -195,7 +195,7 @@ final class PlaybackEngine {
     //     换成新实例，而主线程可能正在读那个属性。subtitleLock 就是为这一件事存在的，
     //     它**不会**被嵌套进 libass 那把锁（render 是拿到引用之后才调用的）。
     private let subtitleLock = NSLock()
-    private var subtitleRendererStorage: AssSubtitleRenderer?
+    private var subtitleRendererStorage: SubtitleRenderable?
 
     /// 字幕解码器。只属于解封装线程（与 MediaFileSource 同一套约定）。
     private var subtitleDecoder: SubtitleDecoder?
@@ -1548,7 +1548,7 @@ final class PlaybackEngine {
 
     // MARK: - 字幕（Phase 3）
 
-    private var subtitleRenderer: AssSubtitleRenderer? {
+    private var subtitleRenderer: SubtitleRenderable? {
         get { subtitleLock.lock(); defer { subtitleLock.unlock() }; return subtitleRendererStorage }
         set {
             subtitleLock.lock(); defer { subtitleLock.unlock() }
@@ -1754,22 +1754,22 @@ final class PlaybackEngine {
             // │ 所以这里判断依据必须是 `isBitmapCodec`（codec descriptor 的属性位），
             // │ 不能等 `decode` 里那个 `isBitmapSubtitle` —— 它要解过包才翻，太晚。
             // └
+            let renderer: SubtitleRenderable
             if dec.isBitmapCodec {
-                dec.close()
-                Self.log("字幕：内封轨 #\(index) 是图形字幕（\(dec.codecName)），"
-                         + "libass 渲染不了 —— 已跳过渲染器建立")
-                return
-            }
-
-            let fonts = src.embeddedFonts()
-            let renderer = AssSubtitleRenderer(codecPrivate: Data(dec.codecPrivate),
+                renderer = BitmapSubtitleRenderer()
+                Self.log("字幕：已接入内封图形字幕轨 #\(index)（\(dec.codecName)）")
+            } else {
+                let fonts = src.embeddedFonts()
+                renderer = AssSubtitleRenderer(codecPrivate: Data(dec.codecPrivate),
                                                fontDirectories: [],
                                                embeddedFonts: fonts)
+                Self.log("字幕：已接入内封文本字幕轨 #\(index)（\(dec.codecName) · "
+                         + "\(dec.codecPrivate.count) 字节样式表）"
+                         + (fonts.isEmpty ? "" : " · 内嵌字体 \(fonts.count) 份"))
+            }
+
             subtitleDecoder = dec
             subtitleRenderer = renderer
-            Self.log("字幕：已接入内封轨 #\(index)（\(dec.codecName) · "
-                     + "\(dec.codecPrivate.count) 字节样式表）"
-                     + (fonts.isEmpty ? "" : " · 内嵌字体 \(fonts.count) 份"))
         } catch {
             Self.log("字幕：解码器建立失败 — \(error.localizedDescription)")
         }
@@ -1835,23 +1835,30 @@ final class PlaybackEngine {
         Self.log("字幕：已加载外挂 \(url.lastPathComponent) — \(renderer.debugSummary())")
     }
 
-    /// 解一个字幕包并喂给 libass。解封装线程调用。
+    /// 解一个字幕包并喂给渲染器。解封装线程调用。
     private func ingestSubtitlePacket(_ packet: UnsafeMutablePointer<AVPacket>,
                                       source src: MediaFileSource) {
-        guard let dec = subtitleDecoder else { return }
-        let events = dec.decode(packet: packet)
-        guard !events.isEmpty, let renderer = subtitleRenderer else { return }
-        for event in events {
-            // 时长必须 > 0，否则 libass 建出来的是「零时长事件」= 永不渲染。
-            // 这条 trace 就是为盯住它留的（内封 ASS 的时长只能从包上取，
-            // 而包时长缺失时这里是唯一的报警点）。
-            if event.duration <= 0 {
-                Self.log("字幕：事件时长 <= 0（\(event.start)s）—— libass 不会渲染这条")
+        guard let dec = subtitleDecoder, let renderer = subtitleRenderer else { return }
+
+        if let bitmapRenderer = renderer as? BitmapSubtitleRenderer {
+            if let decoded = dec.decodeBitmap(packet: packet) {
+                bitmapRenderer.add(decoded: decoded, canvasSize: dec.subtitleCanvasSize)
             }
-            renderer.processASSChunk(
-                data: Data(event.line.utf8),
-                startMs: Int64((event.start * 1000).rounded()),
-                durationMs: Int64((max(event.duration, 0) * 1000).rounded()))
+            return
+        }
+
+        if let assRenderer = renderer as? AssSubtitleRenderer {
+            let events = dec.decode(packet: packet)
+            guard !events.isEmpty else { return }
+            for event in events {
+                if event.duration <= 0 {
+                    Self.log("字幕：事件时长 <= 0（\(event.start)s）—— libass 不会渲染这条")
+                }
+                assRenderer.processASSChunk(
+                    data: Data(event.line.utf8),
+                    startMs: Int64((event.start * 1000).rounded()),
+                    durationMs: Int64((max(event.duration, 0) * 1000).rounded()))
+            }
         }
     }
 

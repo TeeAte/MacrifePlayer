@@ -753,6 +753,24 @@
 			<key>requirement</key>
 			<string>cdhash H"1f2a4c73614827d3b580e573d0f8a76ae9806609"</string>
 		</dict>
+		<key>MacOS/Macrife Player.debug.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			mSjY9m4qVnrFyJsYv9w4rZGgSWA=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"9928d8f66e2a567ac5c89b18bfdc38ad91a04960"</string>
+		</dict>
+		<key>MacOS/__preview.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			8HyzoisqHwd9Gks90stMpSTbC1A=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"f07cb3a22b2a1f077d1a4b3dd2cb4ca524db0b50"</string>
+		</dict>
 		<key>Resources/Anime4K_Restore_CNN_M.json</key>
 		<dict>
 			<key>hash2</key>

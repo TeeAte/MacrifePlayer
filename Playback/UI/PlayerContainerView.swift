@@ -1146,9 +1146,13 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         layer?.borderWidth = 0
         guard let url = draggedURL(from: sender) else { return false }
-        if Self.mediaExtensions.contains(url.pathExtension.lowercased()) {
+        let ext = url.pathExtension.lowercased()
+        if SubtitleFormat.supportedExtensions.contains(ext) {
+            loadExternalSubtitle(url: url)
+            showStatusPill("已加载字幕: \(url.lastPathComponent)", autoHideDelay: 2.5)
+        } else if Self.mediaExtensions.contains(ext) {
             open(url: url)
-        } else if url.pathExtension.lowercased() == "json" {
+        } else if ext == "json" {
             // 丢进来一个播放列表文件 → 交给窗口控制器
             onPlaylistAppend?([url])
         } else {

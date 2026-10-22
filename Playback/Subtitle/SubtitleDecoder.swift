@@ -119,6 +119,97 @@ final class SubtitleDecoder {
         avcodec_flush_buffers(c)
     }
 
+    var subtitleCanvasSize: (width: Int, height: Int) {
+        guard let c = ctx else { return (0, 0) }
+        return (Int(c.pointee.width), Int(c.pointee.height))
+    }
+
+    struct BitmapSubtitleRect {
+        var x: Int
+        var y: Int
+        var width: Int
+        var height: Int
+        var bgraPixels: [UInt8]
+    }
+
+    struct DecodedBitmapSubtitle {
+        var start: Double
+        var end: Double
+        var isClear: Bool
+        var rects: [BitmapSubtitleRect]
+    }
+
+    /// 解一个图形（位图）字幕包（PGS / VobSub / DVB）。
+    func decodeBitmap(packet: UnsafeMutablePointer<AVPacket>) -> DecodedBitmapSubtitle? {
+        guard let c = ctx else { return nil }
+
+        var sub = AVSubtitle()
+        var got: Int32 = 0
+        let rc = avcodec_decode_subtitle2(c, &sub, &got, packet)
+        guard rc >= 0, got != 0 else { return nil }
+        defer { avsubtitle_free(&sub) }
+
+        let packetPTS = Self.packetSeconds(packet, timeBase)
+        let start = packetPTS + Double(sub.start_display_time) / 1000.0
+        let subDuration = Double(sub.end_display_time &- sub.start_display_time) / 1000.0
+        let duration = subDuration > 0 ? subDuration : Self.packetDurationSeconds(packet, timeBase)
+        let end = duration > 0 ? (start + duration) : Double.infinity
+
+        // 如果该包是空包（num_rects == 0，即 PGS 清屏哨兵）
+        if sub.num_rects == 0 {
+            return DecodedBitmapSubtitle(start: start, end: start, isClear: true, rects: [])
+        }
+
+        guard let rectsPtr = sub.rects else { return nil }
+        var outRects: [BitmapSubtitleRect] = []
+
+        for i in 0..<Int(sub.num_rects) {
+            guard let rPtr = rectsPtr[i] else { continue }
+            let r = rPtr.pointee
+            guard r.type == SUBTITLE_BITMAP, r.w > 0, r.h > 0 else { continue }
+            guard let data0 = r.data.0, let data1 = r.data.1 else { continue }
+
+            let w = Int(r.w)
+            let h = Int(r.h)
+            let stride = Int(r.linesize.0)
+            let palette = UnsafeMutableRawPointer(data1).assumingMemoryBound(to: UInt32.self)
+            var bgra = [UInt8](repeating: 0, count: w * h * 4)
+
+            for row in 0..<h {
+                let srcRow = data0.advanced(by: row * stride)
+                let dstRow = row * w * 4
+                for col in 0..<w {
+                    let idx = srcRow[col]
+                    let color = palette[Int(idx)]
+                    // 小端 0xAARRGGBB，内存排列 [B, G, R, A]
+                    let a = UInt8((color >> 24) & 0xFF)
+                    if a > 0 {
+                        let r_col = UInt8((color >> 16) & 0xFF)
+                        let g_col = UInt8((color >> 8) & 0xFF)
+                        let b_col = UInt8(color & 0xFF)
+                        let dstIdx = dstRow + col * 4
+                        if a == 255 {
+                            bgra[dstIdx + 0] = b_col
+                            bgra[dstIdx + 1] = g_col
+                            bgra[dstIdx + 2] = r_col
+                            bgra[dstIdx + 3] = 255
+                        } else {
+                            let alphaFloat = Float(a) / 255.0
+                            bgra[dstIdx + 0] = UInt8((Float(b_col) * alphaFloat).rounded())
+                            bgra[dstIdx + 1] = UInt8((Float(g_col) * alphaFloat).rounded())
+                            bgra[dstIdx + 2] = UInt8((Float(r_col) * alphaFloat).rounded())
+                            bgra[dstIdx + 3] = a
+                        }
+                    }
+                }
+            }
+            outRects.append(BitmapSubtitleRect(x: Int(r.x), y: Int(r.y), width: w, height: h, bgraPixels: bgra))
+        }
+
+        guard !outRects.isEmpty else { return nil }
+        return DecodedBitmapSubtitle(start: start, end: end, isClear: false, rects: outRects)
+    }
+
     // MARK: - 解码
 
     /// 解一个字幕包。

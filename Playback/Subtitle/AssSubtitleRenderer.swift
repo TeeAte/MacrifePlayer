@@ -74,7 +74,7 @@
 import Foundation
 import CAss
 
-final class AssSubtitleRenderer {
+final class AssSubtitleRenderer: SubtitleRenderable {
 
     // MARK: - libass 句柄
 
