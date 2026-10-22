@@ -468,23 +468,39 @@ final class MediaFileSource {
         let clamped = max(0, min(seconds, duration > 0 ? duration - 0.05 : seconds))
         let ts = Int64((clamped * Double(AV_TIME_BASE)).rounded())
 
-        // 策略 1：avformat_seek_file —— min/ts/max 区间形式，优先走 read_seek2
-        let rc1 = avformat_seek_file(c, -1, Int64.min, ts, Int64.max, 0)
-        if rc1 >= 0 {
-            if let pkt = readPacket { av_packet_unref(pkt) }
-            lastSeekDescription = "avformat_seek_file → \(rc1)"
-            return rc1
+        // 优先按视频流索引寻址（MKV/MP4 的关键帧 Cues 索引通常挂在视频流上）
+        if videoStreamIndex >= 0, let st = stream(videoStreamIndex) {
+            let streamTS = av_rescale_q(ts, AVRational(num: 1, den: AV_TIME_BASE), st.pointee.time_base)
+            // 策略 1：针对视频流调用 avformat_seek_file，限制上界 max_ts = streamTS 绝不越界
+            let rc1 = avformat_seek_file(c, Int32(videoStreamIndex), 0, streamTS, streamTS, 0)
+            if rc1 >= 0 {
+                if let pkt = readPacket { av_packet_unref(pkt) }
+                lastSeekDescription = "avformat_seek_file(video) → \(rc1)"
+                return rc1
+            }
+
+            // 策略 2：针对视频流调用 av_seek_frame 向后查找最近关键帧
+            let rc2 = av_seek_frame(c, Int32(videoStreamIndex), streamTS, AVSEEK_FLAG_BACKWARD)
+            if rc2 >= 0 {
+                if let pkt = readPacket { av_packet_unref(pkt) }
+                lastSeekDescription = "av_seek_frame(video) → \(rc2)"
+                return rc2
+            }
         }
 
-        // 策略 2：显式指定视频流索引 + 把 AV_TIME_BASE 时间戳换算到该流时间基
-        var rc2: Int32 = rc1
-        if let st = stream(videoStreamIndex) {
-            let streamTS = av_rescale_q(ts, AVRational(num: 1, den: AV_TIME_BASE), st.pointee.time_base)
-            rc2 = av_seek_frame(c, Int32(videoStreamIndex), streamTS, AVSEEK_FLAG_BACKWARD)
+        // 策略 3：全局回落 avformat_seek_file (-1)，限制上界 max_ts = ts
+        let rc3 = avformat_seek_file(c, -1, 0, ts, ts, 0)
+        if rc3 >= 0 {
+            if let pkt = readPacket { av_packet_unref(pkt) }
+            lastSeekDescription = "avformat_seek_file(-1) → \(rc3)"
+            return rc3
         }
+
+        // 策略 4：全局回落 av_seek_frame (-1)
+        let rc4 = av_seek_frame(c, -1, ts, AVSEEK_FLAG_BACKWARD)
         if let pkt = readPacket { av_packet_unref(pkt) }
-        lastSeekDescription = "avformat_seek_file(\(rc1)) → 回落 av_seek_frame(\(rc2))"
-        return rc2
+        lastSeekDescription = "av_seek_frame(-1) → \(rc4)"
+        return rc4
     }
 }
 

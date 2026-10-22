@@ -198,6 +198,9 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     /// 性能监看面板（Tab 切换）。默认隐藏，显示时**每 0.5s 反拉一次**引擎计数。
     let statsPanel = StatsPanelView(frame: .zero)
 
+    /// 媒体打开串行调度队列：确保拖拽打开、菜单打开与重载按序排队，杜绝并发执行 engine.open
+    private let mediaOpenQueue = DispatchQueue(label: "com.macrife.mediaOpenQueue", qos: .userInitiated)
+
     // 反射池里的名字：containerView / overlayView 在 ControlOverlayView 内部，
     // 这里对应「容器里装画面与浮层的那一层」。
     private let containerView = NSView()
@@ -359,8 +362,12 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         engine.delegate = self
         overlay.onPlayPause = { [weak self] in self?.togglePlayPause() }
         overlay.onSeek = { [weak self] seconds in self?.seek(to: seconds) }
-        overlay.onSeekPreview = { [weak self] seconds in self?.seek(to: seconds) }
+        overlay.onSeekPreview = { [weak self] seconds in
+            guard let self else { return }
+            self.overlay.setTime(current: seconds, duration: self.engine.duration)
+        }
         overlay.onSeekRelative = { [weak self] delta in self?.seekRelative(delta) }
+        overlay.onReload = { [weak self] in self?.reloadCurrentMedia() }
         overlay.onVolumeChanged = { [weak self] v in self?.setVolume(v) }
         overlay.onTogglePlaylist = { [weak self] in self?.togglePlaylist() }
         overlay.onFullscreen = { [weak self] in self?.onToggleFullscreenRequested?() }
@@ -700,7 +707,7 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         showStatusPill("正在打开 \(url.lastPathComponent) …", autoHideDelay: nil)
         renderView.clearFrame()
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        mediaOpenQueue.async { [weak self] in
             guard let self else { return }
             do {
                 try self.engine.open(url: url)
@@ -720,6 +727,8 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
                     self.overlay.setPlaying(true)
                     self.overlay.setTime(current: 0, duration: self.engine.duration)
                     self.updateInfoLabel()
+                    let s = PlaybackSettings.shared
+                    self.renderView.updatePreferredFPS(for: s.rifeRateMode, sourceFPS: self.engine.detail.video?.frameRate ?? 24)
                     self.onCurrentURLChanged?(url)
                     self.onPlaybackStateChanged?(true)
                     self.applyVolumeFromSettings()
@@ -746,7 +755,7 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         showStatusPill("正在连接采集卡 \(videoDevice.localizedName) …", autoHideDelay: nil)
         renderView.clearFrame()
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        mediaOpenQueue.async { [weak self] in
             guard let self else { return }
             do {
                 try self.engine.openCapture(videoDevice: videoDevice, audioDevice: audioDevice,
@@ -817,6 +826,32 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     func seekRelative(_ delta: Double) {
         guard engine.url != nil else { return }
         engine.seek(to: max(0, min(engine.duration, engine.currentTime + delta)))
+    }
+
+    /// 重新载入当前视频并恢复进度（对应重载按钮与 Cmd+R）
+    func reloadCurrentMedia() {
+        guard engine.url != nil else { return }
+        guard !isReloadingPipeline else { return }
+        isReloadingPipeline = true
+        showStatusPill("正在重新载入视频并恢复进度…", autoHideDelay: 2.0)
+
+        mediaOpenQueue.async { [weak self] in
+            guard let self else { return }
+            let ok = self.engine.reloadInPlace()
+            DispatchQueue.main.async {
+                self.isReloadingPipeline = false
+                guard ok else {
+                    self.showStatusPill("重载视频失败", autoHideDelay: 2.0)
+                    return
+                }
+                self.resetStatsSampling()
+                self.overlay.setPlaying(self.engine.isPlaying)
+                self.overlay.setTime(current: self.engine.currentTime,
+                                     duration: self.engine.duration)
+                self.updateInfoLabel()
+                self.showStatusPill("已重新载入视频 (恢复进度)", autoHideDelay: 2.0)
+            }
+        }
     }
 
     func setVolume(_ v: Float) {

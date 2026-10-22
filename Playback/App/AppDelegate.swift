@@ -803,6 +803,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 真正处理 Tab 的是容器里那条本地事件监视器，见 PlayerContainerView.installTabMonitor()。
         add(MPText.t("性能监看", "Performance Monitor"),
             #selector(toggleStatsMenuAction(_:)), "", self)
+        add(MPText.t("重新载入当前视频 (恢复进度)", "Reload Current Video"),
+            #selector(reloadCurrentVideoMenuAction(_:)), "r", self)
         add(L10n.t("close_current_video"), #selector(closeCurrentVideoMenuAction(_:)), "w", self)
 
         menu.addItem(.separator())
@@ -1022,6 +1024,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        // ---- HDR 转 SDR 色调映射 (Tone Mapping)
+        let hdrMenu = NSMenu(title: "HDR 转 SDR 色调映射")
+        for mode in HDRToneMappingMode.allCases {
+            let item = NSMenuItem(title: mode.title,
+                                  action: #selector(switchHDRToneMappingMenuAction(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode
+            item.state = (s.hdrToneMapping == mode) ? .on : .off
+            hdrMenu.addItem(item)
+        }
+        let hdrSubmenuItem = NSMenuItem(title: "HDR 转 SDR 色调映射", action: nil, keyEquivalent: "")
+        hdrSubmenuItem.submenu = hdrMenu
+        menu.addItem(hdrSubmenuItem)
+
+        menu.addItem(.separator())
+
         let hintItem = NSMenuItem(title: "💡 模型架构 (RIFE / FLAVR / DRBA) 与专属参数统一在详细配置中调控",
                                   action: #selector(openRIFEConfigMenuAction(_:)),
                                   keyEquivalent: "")
@@ -1036,6 +1055,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             s.rifeRateMode = .off
         }
+    }
+
+    @objc private func switchHDRToneMappingMenuAction(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? HDRToneMappingMode else { return }
+        PlaybackSettings.shared.hdrToneMapping = mode
     }
 
     /// refreshRIFEWorkerMenu（观测方法）。
@@ -1118,6 +1142,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func closeCurrentVideoMenuAction(_ sender: Any?) {
         windowController?.closeCurrentVideo()
+    }
+
+    @objc private func reloadCurrentVideoMenuAction(_ sender: Any?) {
+        windowController?.reloadCurrentVideo()
     }
 
     /// openRecentVideoMenuAction（观测方法）。
@@ -1334,6 +1362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hasVideo = container?.currentURL != nil || (container?.isCaptureMode ?? false)
         switch item.action {
         case #selector(closeCurrentVideoMenuAction(_:)),
+             #selector(reloadCurrentVideoMenuAction(_:)),
              #selector(savePlaylistMenuAction(_:)):
             return hasVideo
         case #selector(togglePlaylistMenuAction(_:)):

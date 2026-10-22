@@ -163,6 +163,7 @@ final class PlaybackEngine {
 
     private let anchorLock = NSLock()
     private var audioAnchorPTS: Double?
+    private var audioTimeOffset: Double = 0
     private var audioBuffersScheduled = false
 
     private var storedVolume: Float = 1.0
@@ -222,7 +223,14 @@ final class PlaybackEngine {
     // MARK: 队列 / 线程
 
     private let videoPacketQueue = BoundedQueue<PacketItem>(capacity: 200)
-    private let audioPacketQueue = BoundedQueue<PacketItem>(capacity: 600)
+    /// 音频包队列：**容量就是音频的读包预读量**，别开大。
+    ///
+    /// 踩过的坑：原本 600 包 ≈ 51 秒音频。解封装线程是唯一读文件的人，它按「哪个
+    /// 队列先满就先卡在哪个」来限速 —— 音频队列能囤 51 秒，就永远轮不到视频队列
+    /// 来卡它，结果音频一路囤到 600、解封装线程整条卡在音频队列上，视频包再也读
+    /// 不出来（v=0）、画面冻死、补帧看门狗连跳。128 包 ≈ 10.9 秒，与视频侧 200 帧
+    /// （≈8.3 秒）基本配平，谁先满都能及时把解封装线程刹住，不会互相饿死。
+    private let audioPacketQueue = BoundedQueue<PacketItem>(capacity: 128)
     private let frameQueue = BoundedQueue<DecodedVideoFrame>(capacity: 48)
     private let rifeEngine = RIFEInterpolationEngine()
     private let flavrEngine = FLAVRInterpolationEngine()
@@ -232,6 +240,8 @@ final class PlaybackEngine {
     private let videoGate = PipelineGate()
     private let audioGate = PipelineGate()
     private let threadGroup = DispatchGroup()
+    private let rifeGroup = DispatchGroup()
+    private let openLock = NSLock()
     private let demuxQueue = DispatchQueue(label: "metalplayer.demux", qos: .userInitiated)
     private let videoQueue = DispatchQueue(label: "metalplayer.video", qos: .userInitiated)
     private let audioQueue = DispatchQueue(label: "metalplayer.audio", qos: .userInitiated)
@@ -280,9 +290,9 @@ final class PlaybackEngine {
     /// 把硬限抬到 8、软限抬到 5，给瞬时抖动留余量：稳态在途仍远低于 5，
     /// 不会再误杀插值；真·worker 跟不上时也只是多缓冲几帧，不会退化成队列满死锁
     ///（队列满死锁的防线是下方 rifeAheadLimit，独立于本值）。
-    private static let rifeMaxInflight = 8
+    private static let rifeMaxInflight = 12
     /// 在途帧对软上限（超过则本对直通不插帧 —— protect interval）
-    private static let rifeSoftInflight = 5
+    private static let rifeSoftInflight = 8
     /// 端到端领先量上限（RIFE 输入 + 在途帧对×2 输出帧 + 帧队列）。
     /// 对齐原版 RIFE60_MAX_AHEAD 的职责：没有它，兜底引擎预热期会以解码
     /// 全速把 frameQueue 灌满，出口线程被满队列卡住 → 在途堆积 →
@@ -310,6 +320,10 @@ final class PlaybackEngine {
                       + 2 * rifeReorder.inflight + frameQueue.count
             if ahead <= Self.rifeAheadLimit { return }
             if currentGeneration() != gen { return }
+            stateLock.lock()
+            let seekPending = (seekRequested != nil)
+            stateLock.unlock()
+            if seekPending { return }
             Thread.sleep(forTimeInterval: 0.01)
         }
     }
@@ -343,6 +357,8 @@ final class PlaybackEngine {
     /// 打开媒体文件。会同步做完解封装/解码器初始化，并自动开始播放。
     /// 调用方应放在后台线程（内部有磁盘 I/O 与 FFmpeg 探测）。
     func open(url: URL) throws {
+        openLock.lock()
+        defer { openLock.unlock() }
         shutdownPipeline()
 
         stateLock.lock()
@@ -365,7 +381,7 @@ final class PlaybackEngine {
         rifeReorder.reopen()
         frameLock.lock(); pendingFrame = nil; lastPresentedPTS = -1; loggedFirstFrame = false; audioPrebufferDone = false; frameLock.unlock()
         demuxReadCount = 0; pushTimeouts = 0; lastDemuxTrace = 0; loggedEOF = false
-        anchorLock.lock(); audioAnchorPTS = nil; audioBuffersScheduled = false; anchorLock.unlock()
+        anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
         // 性能计数归零：换文件之后旧的计数没有意义，留着会算出跨文件的假 FPS。
         resetStats()
 
@@ -433,15 +449,19 @@ final class PlaybackEngine {
         clock.hasAudio = (audioOutput != nil)
         clock.scheduledAudioEnd = 0
         clock.reset(to: 0)
+        anchorLock.lock()
+        audioTimeOffset = 0
+        anchorLock.unlock()
         clock.audioTimeProvider = { [weak self] () -> Double? in
             guard let self,
                   let out = self.audioOutput,
                   let played = out.renderedSeconds() else { return nil }
             self.anchorLock.lock()
             let anchor = self.audioAnchorPTS
+            let offset = self.audioTimeOffset
             self.anchorLock.unlock()
             guard let a = anchor else { return nil }
-            return a + played
+            return max(0, a + played - offset)
         }
 
         startThreads()
@@ -469,7 +489,11 @@ final class PlaybackEngine {
         }
         stateLock.lock(); wantPlaying = true; stateLock.unlock()
         anchorLock.lock(); let scheduled = audioBuffersScheduled; anchorLock.unlock()
-        if scheduled { audioOutput?.play() }
+        let rifeActive = (PlaybackSettings.shared.rifeRateMode != .off)
+        // 补帧模式下：必须等待首批插值帧预缓冲就绪才唤醒音频，彻底防止音频抢跑导致的画面追赶与疯狂丢帧
+        if scheduled && (!rifeActive || audioPrebufferDone) {
+            audioOutput?.play()
+        }
         clock.start()
         setState(.playing)
     }
@@ -614,14 +638,41 @@ final class PlaybackEngine {
                 presented = candidate
             }
         } else {
-            // 标准时间轴对齐呈现（文件回放，或者采集卡开启 RIFE/FLAVR 补帧）：
-            // 严格按 V-Sync 节奏输出每一帧过渡画面，绝不批量清空队列丢弃插值帧
-            if pendingFrame == nil { pendingFrame = frameQueue.tryPop() }
-
-            // 迟到丢帧保护门限：仅在音画严重脱节（超过 0.4 秒）或 seek 后才丢帧追时钟，避免误杀正常插值帧
-            while let c = pendingFrame, c.pts < now - 0.40 {
+            // 严格过滤并丢弃任何小于当前有效起始 PTS 的旧世代过期残留帧（seek/起播残留）
+            let validFloor = currentMinValidPTS
+            while let candidate = pendingFrame, candidate.pts < validFloor {
                 pendingFrame = frameQueue.tryPop()
                 lateDropped += 1
+            }
+
+            if pendingFrame == nil { pendingFrame = frameQueue.tryPop() }
+
+            while let candidate = pendingFrame, candidate.pts < validFloor {
+                pendingFrame = frameQueue.tryPop()
+                lateDropped += 1
+            }
+
+            // 迟到丢帧保护门限：仅在音画脱节时才丢帧追时钟，避免误杀正常插值帧。
+            // 补帧开启时，由于异步推理队列存在固有在途延迟，保护门限放宽至 0.8 秒；
+            // 且首帧尚未上屏前绝不丢帧，防止起播/seek阶段将首批帧误杀
+            let lateThreshold = isInterpolating ? 0.80 : 0.40
+            if let c = pendingFrame {
+                let diff = now - c.pts
+                if diff > 0.25 {
+                    // 音画脱节自愈（Seek、起播等待或瞬时卡顿导致的落差）：强行将时钟对齐到当前画面，杜绝死循环丢帧卡死与周期性微顿挫
+                    clock.reset(to: c.pts)
+                    anchorLock.lock()
+                    if let a = audioAnchorPTS {
+                        let played = audioOutput?.renderedSeconds() ?? 0.0
+                        self.audioTimeOffset = (a + played) - c.pts
+                    }
+                    anchorLock.unlock()
+                } else if diff > lateThreshold && loggedFirstFrame {
+                    while let nextCandidate = pendingFrame, now - nextCandidate.pts > lateThreshold {
+                        pendingFrame = frameQueue.tryPop()
+                        lateDropped += 1
+                    }
+                }
             }
 
             // 根据目标帧率动态计算提前上屏容差（覆盖 ~70% 的 V-Sync 刷新周期，例如 60fps 对应 ~11.6ms，24fps 对应 ~22ms）
@@ -636,8 +687,15 @@ final class PlaybackEngine {
                 lastPresentedPTS = candidate.pts
                 if !loggedFirstFrame {
                     loggedFirstFrame = true
+                    // 首帧上屏瞬间：如果音频已就绪，通过 audioTimeOffset 精确拉齐时钟零点
+                    anchorLock.lock()
+                    if let a = audioAnchorPTS {
+                        let played = audioOutput?.renderedSeconds() ?? 0.0
+                        self.audioTimeOffset = (a + played) - candidate.pts
+                    }
+                    anchorLock.unlock()
                     clock.reset(to: candidate.pts)
-                    Self.log("首帧上屏 pts=\(String(format: "%.3f", candidate.pts))s (时钟基准已对齐)")
+                    Self.log("首帧上屏 pts=\(String(format: "%.3f", candidate.pts))s (音视频时钟基准已绝对对齐)")
                 }
                 presented = candidate
             }
@@ -701,6 +759,12 @@ final class PlaybackEngine {
         stateLock.lock(); rifeThreadsStarted = false; stateLock.unlock()
         audioOutput?.teardown()
 
+        // 显式等待 RIFE 异步推理管线所有调度/工作/出口线程彻底退出
+        if rifeGroup.wait(timeout: .now() + 2) == .timedOut {
+            FileHandle.standardError.write(
+                Data("[PlaybackEngine] 警告：RIFE管线线程未在 2s 内退出\n".utf8))
+        }
+
         // 等线程真正退出（每个线程都在 threadGroup 里）
         if threadGroup.wait(timeout: .now() + 3) == .timedOut {
             FileHandle.standardError.write(
@@ -736,7 +800,7 @@ final class PlaybackEngine {
         stateLock.unlock()
         resetStats()
         clock.audioTimeProvider = nil
-        anchorLock.lock(); audioAnchorPTS = nil; audioBuffersScheduled = false; anchorLock.unlock()
+        anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
     }
 
     // MARK: - 解封装线程
@@ -856,9 +920,13 @@ final class PlaybackEngine {
     private func pushWithRetry(_ item: PacketItem, kind: PacketKind, generation gen: Int) {
         let queue = (kind == .video) ? videoPacketQueue : audioPacketQueue
         while !isStopping {
-            if queue.push(item, timeout: 0.1) { return }
+            if queue.push(item, timeout: 0.05) { return }
             pushTimeouts += 1
             if currentGeneration() != gen { return }
+            stateLock.lock()
+            let hasPendingCmd = (seekRequested != nil || audioTrackRequest != nil || subtitleRequest != nil)
+            stateLock.unlock()
+            if hasPendingCmd { return }
         }
     }
 
@@ -954,13 +1022,34 @@ final class PlaybackEngine {
                                                   isBT709: f.isBT709,
                                                   colorSpaceCode: f.colorSpaceCode,
                                                   isFullRange: f.isFullRange,
-                                                  isInterpolated: false)
+                                                  isInterpolated: false,
+                                                  transferFunction: .sdr)
                 isPacked422 = false   // 已转 NV12，可走补帧
             } else {
                 // 引擎还在加载期：回落直通，只提示一次（加载完下一帧即可补帧）
                 notePacked422InterpolationSkipOnce()
             }
         }
+
+        // ── HDR 转 SDR 色调映射 (Tone Mapping) ──
+        // 若片源为 HDR (SMPTE ST 2084 PQ / HLG / BT.2020 10-bit)，且开启了 HDR 转 SDR (默认 auto 自动映射):
+        // 先在 GPU 上将 10-bit HDR 画面转换映射为标准 BT.709 SDR 8-bit NV12 画面。
+        // 这样不仅使 SDR 屏幕恢复丰满对比与鲜艳色彩，而且进入补帧引擎 (RIFE / FLAVR) 的画面
+        // 是标准 SDR 域，保证光流运动估计与神经网络推理在最契合的 SDR 对比度与色彩空间下进行。
+        let hdrMode = settings.hdrToneMapping
+        if effectiveFrame.isHDR && hdrMode != .off {
+            if let sdr = HDRToneMapper.shared.convertToSDR(effectiveFrame, mode: hdrMode) {
+                if !didLogHDRToneMap {
+                    didLogHDRToneMap = true
+                    FileHandle.standardError.write(Data("[PlaybackEngine] 检测到 HDR (PQ/BT.2020) 视频，已激活 GPU Tone Mapping (\(hdrMode.title)) -> SDR BT.709，随后接入补帧引擎\n".utf8))
+                }
+                effectiveFrame = sdr
+            }
+        }
+
+        let effectivePixelFormat = CVPixelBufferGetPixelFormatType(effectiveFrame.pixelBuffer)
+        let effectiveIs10Bit = (effectivePixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                                effectivePixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
 
         if !isPacked422,
            !settings.rifeModel.isFLAVR,
@@ -969,7 +1058,8 @@ final class PlaybackEngine {
                                            sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
                                            sourceHeight: CVPixelBufferGetHeight(effectiveFrame.pixelBuffer),
                                            fullRange: effectiveFrame.isFullRange,
-                                           bt709: effectiveFrame.isBT709) {
+                                           colorSpaceCode: effectiveFrame.colorSpaceCode,
+                                           is10Bit: effectiveIs10Bit) {
             ensureRifePipeline()
             while !isStopping {
                 if rifeInputQueue.push(.frame(effectiveFrame, generation: gen, fps: fps),
@@ -991,7 +1081,8 @@ final class PlaybackEngine {
                                                     sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
                                                     sourceHeight: CVPixelBufferGetHeight(effectiveFrame.pixelBuffer),
                                                     fullRange: effectiveFrame.isFullRange,
-                                                    bt709: effectiveFrame.isBT709)
+                                                    colorSpaceCode: effectiveFrame.colorSpaceCode,
+                                                    is10Bit: effectiveIs10Bit)
             framesToEnqueue = rifeEngine.interpolate(incoming: effectiveFrame, settings: settings, sourceFrameRate: fps)
         }
         pushOutputs(framesToEnqueue, generation: gen)
@@ -1008,13 +1099,25 @@ final class PlaybackEngine {
         guard !started else { return }
 
         rifeJobQueues = [
-            BoundedQueue<RifeJob>(capacity: 4),
-            BoundedQueue<RifeJob>(capacity: 4),
+            BoundedQueue<RifeJob>(capacity: Self.rifeMaxInflight),
+            BoundedQueue<RifeJob>(capacity: Self.rifeMaxInflight),
         ]
-        rifeDispatchQueue.async { [weak self] in self?.rifeDispatchLoop() }
-        rifeEmitQueue.async { [weak self] in self?.rifeEmitLoop() }
+        rifeGroup.enter()
+        rifeDispatchQueue.async { [weak self] in
+            defer { self?.rifeGroup.leave() }
+            self?.rifeDispatchLoop()
+        }
+        rifeGroup.enter()
+        rifeEmitQueue.async { [weak self] in
+            defer { self?.rifeGroup.leave() }
+            self?.rifeEmitLoop()
+        }
         for i in 0..<rifeWorkerQueues.count {
-            rifeWorkerQueues[i].async { [weak self] in self?.rifeWorkerLoop(i) }
+            rifeGroup.enter()
+            rifeWorkerQueues[i].async { [weak self] in
+                defer { self?.rifeGroup.leave() }
+                self?.rifeWorkerLoop(i)
+            }
         }
     }
 
@@ -1031,33 +1134,28 @@ final class PlaybackEngine {
                     ticks: [CoreMLRIFEEngine.RifeTick],
                     itemGen: Int, itemFps: Double, settings: PlaybackSettings) {
             guard rifeReorder.waitCapacity(Self.rifeMaxInflight) else { return }
-            // protect interval：在途超过软限 → 本对**不跑网络**，但网格节奏不丢。
-            //
-            // 旧做法 t = [] 整对直通：24fps 片源 + 60fps 模式下真推理需求 ≈48 次/秒
-            // 超出 ANE 双实例 ~44 上限，protect 会持续触发 —— 输出瞬间从 60 网格掉回
-            // 纯 24fps 源帧、下一对又爆发补帧，帧间距在 16.7ms 与 41.7ms 之间跳变，
-            // 视觉上就是「一下快一下慢」，统计上落在 ~48.6fps（实测复现）。
-            // 新做法：保留网格 PTS，把 tick 全部降级为 runChain=false（复制帧，
-            // 零网络开销）→ 输出节奏恒定贴 60fps 网格，真推理量被自然节流回预算内。
-            var t = ticks
-            if !t.isEmpty && rifeReorder.inflight >= Self.rifeSoftInflight {
-                rifeBehindFrames += 1
-                t = t.map { CoreMLRIFEEngine.RifeTick(pts: $0.pts, alpha: $0.alpha, runChain: false) }
-            }
+            // 真实神经网络推理（由 waitCapacity 硬限背压调控，杜绝盲目降级削杀真推理）
+            let t = ticks
             let job = RifeJob(seq: seq, generation: itemGen,
                               workerIndex: seq % rifeWorkerQueues.count,
                               f0: f0, f1: f1, ticks: t,
                               fps: itemFps, settings: settings)
             seq += 1
             rifeReorder.submit(seq: job.seq)
-            _ = rifeJobQueues[job.workerIndex].push(job, timeout: 0.5)
+            while !isStopping {
+                if rifeJobQueues[job.workerIndex].push(job, timeout: 0.05) { return }
+                if currentGeneration() != itemGen {
+                    rifeReorder.push(seq: job.seq, gen: itemGen, frames: [])
+                    return
+                }
+            }
+            // 流水线退出时填充空结果，杜绝重排线程死等看门狗
+            rifeReorder.push(seq: job.seq, gen: itemGen, frames: [])
         }
 
         while !isStopping {
             guard let item = rifeInputQueue.pop() else {
-                if isStopping { break }
-                Thread.sleep(forTimeInterval: 0.02)   // 队列已关闭：等下一轮 open
-                continue
+                break
             }
             if isStopping { break }
             // 本调度循环只做 PTS 算术与稀疏采样（纯 Swift 对象，无 autorelease
@@ -1099,7 +1197,7 @@ final class PlaybackEngine {
                 prevLuma = luma
 
                 if !skip {
-                    let similar = CoreMLRIFEEngine.areFramesSimilar(p.pixelBuffer, f.pixelBuffer)
+                    let similar = settings.rifeStaticFrameSkip && CoreMLRIFEEngine.areFramesSimilar(p.pixelBuffer, f.pixelBuffer, threshold: min(settings.rifeStaticThreshold * 0.05, 0.0008))
                     let timeline = settings.rifeRateMode.needsTimelineResample(sourceFPS: fps)
                     rifeLastBranch = timeline ? "网格" : (similar ? "静帧" : "定比")
                     rifeLastFps = fps
@@ -1172,9 +1270,7 @@ final class PlaybackEngine {
     private func rifeWorkerLoop(_ index: Int) {
         while !isStopping {
             guard let job = rifeJobQueues[index].pop() else {
-                if isStopping { break }
-                Thread.sleep(forTimeInterval: 0.02)
-                continue
+                break
             }
             if isStopping { break }
             // 每对帧推理是 autorelease 临时对象的大头（CoreML 输出数组、
@@ -1197,11 +1293,10 @@ final class PlaybackEngine {
     private func rifeEmitLoop() {
         while !isStopping {
             guard let r = rifeReorder.next() else {
-                if isStopping { break }
-                Thread.sleep(forTimeInterval: 0.02)
-                continue
+                break
             }
-            if r.frames.isEmpty { continue }   // 换代丢弃的空结果
+            if isStopping { break }
+            if currentGeneration() != r.gen { continue }
             // 同上：永不返回的循环块，每轮手动排池
             autoreleasepool {
                 pushOutputs(r.frames, generation: r.gen)
@@ -1221,9 +1316,11 @@ final class PlaybackEngine {
         // 平衡抗抖动 = 留 2 帧（多一帧余量吸收网络/USB 抖动）。
         // 之前两档共用写死的 2，选哪一档行为完全一致，等于没得选。
         let lowLatencyCap = (settings.captureLowLatencyMode == .extreme) ? 1 : 2
+        let floor = currentMinValidPTS
         for outFrame in framesToEnqueue {
             // 换代（seek/切轨）后仍在本函数里的残留帧直接丢弃
             if currentGeneration() != gen { return }
+            if outFrame.pts < floor { continue }
             if isLowLatency {
                 // 仅在未开启补帧的极低延迟模式下丢弃积压旧帧
                 if frameQueue.count >= lowLatencyCap {
@@ -1243,8 +1340,9 @@ final class PlaybackEngine {
         }
 
         // 原版 startRIFEAudioAfterPrebufferIfNeeded:
-        // 当补帧开启且队列已缓冲 >= 3 帧时，唤醒音频播放，避免音频抢跑
-        if !audioPrebufferDone && frameQueue.count >= 3 {
+        // 当补帧开启且队列已缓冲足够帧数时，唤醒音频播放，避免音频抢跑
+        let prebufferTarget = (PlaybackSettings.shared.rifeRateMode != .off) ? 8 : 3
+        if !audioPrebufferDone && frameQueue.count >= prebufferTarget {
             audioPrebufferDone = true
             if isWantPlaying, let out = audioOutput, !out.isPlaying {
                 out.play()
@@ -1317,9 +1415,10 @@ final class PlaybackEngine {
             let rifeActive = (PlaybackSettings.shared.rifeRateMode != .off)
             if rifeActive {
                 // 原版 startRIFEAudioAfterPrebufferIfNeeded:
-                // 等待插帧队列预缓冲至少 3 帧（或已有可用插值帧），再启动音频播放
+                // 等待插帧队列预缓冲足够帧数，再启动音频播放
                 // 彻底消除音频抢跑导致的画面追赶、掉帧与抽搐
-                if frameQueue.count >= 3 || audioPrebufferDone {
+                let prebufferTarget = 8
+                if frameQueue.count >= prebufferTarget || audioPrebufferDone {
                     audioPrebufferDone = true
                     out.play()
                 }
@@ -1330,18 +1429,29 @@ final class PlaybackEngine {
     }
 
     /// 音频排得太超前就等一等 —— 这是音频侧唯一的限流点。
+    ///
+    /// 超前量**必须用未夹取的音频时钟**算。`clock.currentTime()` 在音频掉出
+    /// 「已排队区间」时会被夹到 scheduledAudioEnd 上，超前量恒等于 0，限流器直接
+    /// 失效（详见 AVSyncClock.rawAudioTime 的注释）。失效后果实测是：音频被一口气
+    /// 排到 580 秒开外（约 80 倍速），期间音频包队列被灌满 → 解封装线程卡死在
+    /// 音频队列上 → 视频包彻底断供 → 末帧停在 8.36s，画面冻死 14 秒。
+    ///
+    /// 这里刻意**不加**「队列太深就放行」的旁路：本线程是这条队列唯一的消费者，
+    /// 放行等于取消限流，音频会继续以几十倍速排下去（实测排到 580s）。队列深度
+    /// 的账由 audioPacketQueue 的容量来算（128 包），不是在这里。
     private func throttleAudio() {
         var blockedSince: TimeInterval = 0
         var warned = false
         while !isStopping {
-            let ahead = clock.scheduledAudioEnd - clock.currentTime()
+            let ahead = clock.scheduledLead()
             if ahead < 0.9 { return }
             if blockedSince == 0 {
                 blockedSince = Date.timeIntervalSinceReferenceDate
             } else if !warned, Date.timeIntervalSinceReferenceDate - blockedSince > 1.0 {
                 warned = true
-                Self.trace(String(format: "audio: 限流阻塞中 —— 超前 %.3fs（排到 %.3f / 当前 %.3f）",
-                                  ahead, clock.scheduledAudioEnd, clock.currentTime()))
+                Self.trace(String(format: "audio: 限流阻塞中 —— 超前 %.3fs（排到 %.3f / 当前 %.3f / 队列 %d 包）",
+                                  ahead, clock.scheduledAudioEnd, clock.currentTime(),
+                                  audioPacketQueue.count))
             }
             Thread.sleep(forTimeInterval: 0.02)
         }
@@ -1357,33 +1467,29 @@ final class PlaybackEngine {
         minValidPTS = max(0, target - 0.3)
         stateLock.unlock()
 
-        // 0. **先给帧队列松绑，再谈冻结。**
+        // 0. **先给所有输入包、帧队列与补帧流水线彻底松绑，再谈冻结**
         //
-        // 顺序错了就是死锁：解码线程此刻很可能正阻塞在 `frameQueue.push` 上
-        //（队列满时它就在等渲染来取 —— 渲染停摆时这是常态），而它还**持着门**。
-        // 这时候 freezeAndWait 会永远等下去，拖进度条就彻底没反应了。
-        // 先换代 + 清空帧队列：阻塞的 push 立刻有地方可去（或直接换代放弃），
-        // 解码线程得以走完这一趟、把门交出来。
-        // 换代的帧本来就要作废，先清掉没有额外代价。
-        frameQueue.flush()
-        rifeInputQueue.flush()
-
-        // 1. 冻结两把门：等在途解码全部结束，之后独占所有 context
-        videoGate.freezeAndWait()
-        audioGate.freezeAndWait()
-
-        // 2. 清空队列与待显示帧
+        // 顺序至关重要：
+        // 必须在 freezeAndWait 之前将 packet 队列与 RIFE 重排/作业队列全部 flush 并唤醒，
+        // 否则解码线程很可能还在消费旧 packet、或者调度线程正阻塞在 rifeReorder.waitCapacity 上，
+        // 导致 videoGate.freezeAndWait 触发长达 5 秒的超时等待，造成进度条拖动严重卡死。
         videoPacketQueue.flush()
         audioPacketQueue.flush()
         frameQueue.flush()
         rifeInputQueue.flush()
-        rifeReorder.discardPending()   // 在途插帧结果整体作废（seq 窗口前移，防止出口线程等死帧）
-        rifeJobQueues.forEach { $0.flush() }   // 未开工的旧帧对也不再算（结果会被过期 seq 丢弃）
+        rifeReorder.discardPending()
+        rifeJobQueues.forEach { $0.flush() }
         rifeEngine.reset()
         flavrEngine.reset()
         CoreMLRIFEEngine.shared.reset()
+
+        // 1. 冻结两把门：等在途单次解码结束，之后独占所有 context (此时旧包已清空，毫秒级即可获得)
+        videoGate.freezeAndWait()
+        audioGate.freezeAndWait()
+
+        // 2. 状态复位与重置
         frameLock.lock(); pendingFrame = nil; lastPresentedPTS = -1; loggedFirstFrame = false; audioPrebufferDone = false; frameLock.unlock()
-        anchorLock.lock(); audioAnchorPTS = nil; audioBuffersScheduled = false; anchorLock.unlock()
+        anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
 
         // 3. 真正寻址 + 重置解码器与重采样器
         let seekRC = src.seek(to: target)
@@ -1444,8 +1550,21 @@ final class PlaybackEngine {
 
     private var subtitleRenderer: AssSubtitleRenderer? {
         get { subtitleLock.lock(); defer { subtitleLock.unlock() }; return subtitleRendererStorage }
-        set { subtitleLock.lock(); defer { subtitleLock.unlock() }; subtitleRendererStorage = newValue }
+        set {
+            subtitleLock.lock(); defer { subtitleLock.unlock() }
+            // 摘掉 renderer 时屏幕上还留着它画的最后一层。`renderSubtitle` 返回 nil 的
+            // 语义是「画面没变，继续用你手里那张纹理」—— 拿它清屏会得到一张永不消失的字幕。
+            // 所以置一个一次性标志，让下一帧主动交一张全透明位图去擦。
+            if newValue == nil && subtitleRendererStorage != nil {
+                subtitleClearPending = true
+            }
+            subtitleRendererStorage = newValue
+        }
     }
+
+    /// 见 `subtitleRenderer` 的 setter：置位后由下一帧的 `renderSubtitle` 消费。
+    /// 与 `subtitleRendererStorage` 同锁保护（主线程读、解封装线程写）。
+    private var subtitleClearPending = false
 
     // MARK: - 音轨控制（Phase 3.5）
 
@@ -1506,7 +1625,7 @@ final class PlaybackEngine {
         flavrEngine.reset()
         CoreMLRIFEEngine.shared.reset()
         frameLock.lock(); pendingFrame = nil; frameLock.unlock()
-        anchorLock.lock(); audioAnchorPTS = nil; audioBuffersScheduled = false; anchorLock.unlock()
+        anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
 
         _ = src.seek(to: targetTime)
         videoDecoder?.reset()
@@ -1551,7 +1670,17 @@ final class PlaybackEngine {
     func renderSubtitle(at time: Double, width: Int, height: Int) -> SubtitleBitmap? {
         // 先取一次引用：拿到之后即使解封装线程把属性换成新实例，ARC 也保证
         // 这个本地引用指向的对象还活着（旧 renderer 的 deinit 会推迟到本次调用结束）。
-        guard let renderer = subtitleRenderer else { return nil }
+        subtitleLock.lock()
+        let renderer = subtitleRendererStorage
+        let needClear = subtitleClearPending && renderer == nil
+        if needClear { subtitleClearPending = false }
+        subtitleLock.unlock()
+
+        guard let renderer else {
+            // 没有 renderer 但要擦屏（刚关字幕 / 刚切到图形字幕轨）：交一张全透明位图。
+            // 这是**一次性**的，之后照常返回 nil 让上层省掉上传。
+            return needClear ? SubtitleBitmap.transparent(width: width, height: height) : nil
+        }
         return renderer.render(at: time, width: width, height: height)
     }
 
@@ -1609,6 +1738,29 @@ final class PlaybackEngine {
             let dec = try SubtitleDecoder(parameters: parameters,
                                           timeBase: src.subtitleTimeBase,
                                           streamIndex: index)
+
+            // ┌ 图形字幕（PGS / VobSub / DVB）在这里必须**提前退出**
+            // │
+            // │ 这类轨解出来的是**画好的位图**（AVSubtitleRect.type == SUBTITLE_BITMAP），
+            // │ 而 libass 只认 ASS 事件行 —— 给它建 renderer，一条事件都进不去。
+            // │
+            // │ 代价却是实打实的：`ass_render_frame` 没有事件可画，但 frame 尺寸
+            // │ 变了（首帧）之后 `change` 仍被判为非零，于是每帧都要重新合成：
+            // │ `[UInt8](repeating: 0, count: w*h*4)` —— 4K 下 3584×2160×4 ≈ 29.5MB
+            // │ 分配 + 逐字节清零，再整幅 `replace` 上传一次。
+            // │ 实测（花样年华 4K HDR + PGS）：主线程 1232 个采样里 1035 个卡在这行，
+            // │ CPU 112%、补帧彻底跟不上；把字幕关掉立刻回到 5.7%。
+            // │
+            // │ 所以这里判断依据必须是 `isBitmapCodec`（codec descriptor 的属性位），
+            // │ 不能等 `decode` 里那个 `isBitmapSubtitle` —— 它要解过包才翻，太晚。
+            // └
+            if dec.isBitmapCodec {
+                dec.close()
+                Self.log("字幕：内封轨 #\(index) 是图形字幕（\(dec.codecName)），"
+                         + "libass 渲染不了 —— 已跳过渲染器建立")
+                return
+            }
+
             let fonts = src.embeddedFonts()
             let renderer = AssSubtitleRenderer(codecPrivate: Data(dec.codecPrivate),
                                                fontDirectories: [],
@@ -1617,8 +1769,7 @@ final class PlaybackEngine {
             subtitleRenderer = renderer
             Self.log("字幕：已接入内封轨 #\(index)（\(dec.codecName) · "
                      + "\(dec.codecPrivate.count) 字节样式表）"
-                     + (fonts.isEmpty ? "" : " · 内嵌字体 \(fonts.count) 份")
-                     + (dec.isBitmapSubtitle ? " · ⚠️ 图形字幕，libass 渲染不出来" : ""))
+                     + (fonts.isEmpty ? "" : " · 内嵌字体 \(fonts.count) 份"))
         } catch {
             Self.log("字幕：解码器建立失败 — \(error.localizedDescription)")
         }
@@ -1751,10 +1902,40 @@ final class PlaybackEngine {
         applyScriptedSeekIfRequested()
         applyScriptedSeekLoopIfRequested()
         memoryTraceIfEnabled()
+        cpuTraceIfEnabled()
         checkEndOfStream()
         audioWatchdog()
         applyEOSReplaySelfTestIfRequested()
         traceIfEnabled()
+    }
+
+    /// dev-only：`MP_CPUSEC=3` 每 3 秒打一行**进程 CPU 占用**。
+    ///
+    /// 为什么值得单独留一条：性能面板的 CPU 只有面板可见时才采样
+    ///（`StatsPanelView.startTimer` 驱动 `sampler.sample`），而验收脚本里面板默认隐藏 ——
+    /// `MP_DUMP_STATS` 打出来的「资源 CPU」永远是 0.0%（首采无基准）。
+    /// 而排查卡顿最关键的那一列数字恰好就是它。
+    ///
+    /// 采样器与面板共用 `SystemMetricsSampler`（getrusage 差分），口径完全一致；
+    /// 只是节拍由环境变量给，不依赖任何 UI 状态。
+    private let cpuSampler = SystemMetricsSampler()
+    private var cpuTraceLast: TimeInterval = 0
+    private func cpuTraceIfEnabled() {
+        guard let raw = ProcessInfo.processInfo.environment["MP_CPUSEC"],
+              let secs = Double(raw), secs > 0 else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard cpuTraceLast > 0 else {
+            // 第一次只建立基准 —— 没有前一个时刻，百分比算不出来。
+            cpuTraceLast = now
+            _ = cpuSampler.sample()
+            return
+        }
+        guard now - cpuTraceLast >= secs else { return }
+        cpuTraceLast = now
+        let m = cpuSampler.sample()
+        statsLock.lock(); let shown = presentedFrames; statsLock.unlock()
+        NSLog("[CPU] %.1f%% | RSS %.0f MB | 足迹 %.0f MB | 上屏 %d | 时钟 %.2fs",
+              m.cpuPercent, m.memoryMB, m.footprintMB, shown, currentTime)
     }
 
     /// dev-only：`MP_MEMSEC=5` 每 5 秒打一行足迹 + 池遥测。
@@ -2156,6 +2337,7 @@ final class PlaybackEngine {
         decodedVideoFrames = 0
         presentedFrames = 0
         droppedFrames = 0
+        didLogHDRToneMap = false
         statsLock.unlock()
         // 上屏计数归零了，停摆看门狗也得跟着重置，
         // 否则它会拿旧计数当基准，把新的一次开播误判成「早就停了」。
@@ -2221,6 +2403,8 @@ final class PlaybackEngine {
 
     func openCapture(videoDevice: AVCaptureDevice, audioDevice: AVCaptureDevice?,
                      format: AVCaptureDevice.Format?, fps: Double, frameDuration: CMTime?) throws {
+        openLock.lock()
+        defer { openLock.unlock() }
         shutdownPipeline()
 
         stateLock.lock()
@@ -2465,6 +2649,7 @@ final class PlaybackEngine {
     /// 打包 4:2:2 + 补帧的组合只提示一次。
     /// 每帧都打会淹掉日志（60 次/秒），而这件事只需被告知一次。
     private var packed422SkipWarned = false
+    private var didLogHDRToneMap = false
     private func notePacked422InterpolationSkipOnce() {
         frameLock.lock()
         let first = !packed422SkipWarned

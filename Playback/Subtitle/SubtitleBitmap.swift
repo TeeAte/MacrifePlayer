@@ -33,6 +33,48 @@
 
 import Foundation
 
+/// 一块像素矩形。原点在**左上角**，与 Metal 纹理的行序一致
+///（libass 的 `dst_x/dst_y` 也是左上角原点，所以这里不需要翻）。
+///
+/// 存在的理由：字幕层每帧真正变的只有「上一帧画过的位置」∪「这一帧要画的位置」，
+/// 两者往往只占全幅的百分之几（4K 全幅 29.5MB，字幕却只在底部几行）。
+/// 按整幅清 + 整幅上传，等于每秒白搬 1.4GB 内存 —— 这就是「4K + PGS 字幕卡死」
+/// 那条链路上被量化出来的开销。
+struct SubtitleDirtyRect: Equatable {
+
+    var x: Int
+    var y: Int
+    var width: Int
+    var height: Int
+
+    static let empty = SubtitleDirtyRect(x: 0, y: 0, width: 0, height: 0)
+
+    var isEmpty: Bool { width <= 0 || height <= 0 }
+
+    /// 并集。空矩形是单位元（与「什么都没画」求并 = 什么都不用传）。
+    func union(_ other: SubtitleDirtyRect) -> SubtitleDirtyRect {
+        if isEmpty { return other }
+        if other.isEmpty { return self }
+        let x0 = min(x, other.x)
+        let y0 = min(y, other.y)
+        let x1 = max(x + width, other.x + other.width)
+        let y1 = max(y + height, other.y + other.height)
+        return SubtitleDirtyRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+
+    /// 裁到画面内。越界的部分 libass 本来就被 `composite` 丢掉了，这里同样丢掉。
+    func clamped(width limitW: Int, height limitH: Int) -> SubtitleDirtyRect {
+        let x0 = max(0, x)
+        let y0 = max(0, y)
+        let x1 = min(limitW, x + width)
+        let y1 = min(limitH, y + height)
+        guard x1 > x0, y1 > y0 else { return .empty }
+        return SubtitleDirtyRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+
+    var debugText: String { isEmpty ? "空" : "\(x),\(y) \(width)x\(height)" }
+}
+
 struct SubtitleBitmap {
 
     /// 位图宽高（像素）。等于渲染时请求的 width / height。
@@ -50,16 +92,27 @@ struct SubtitleBitmap {
     /// 0 表示这一帧没有字幕 —— 可以整个跳过，不必上传一张全透明的纹理。
     var imageCount: Int
 
-    init(width: Int, height: Int, pixels: [UInt8], imageCount: Int) {
+    /// **只有这块区域的内容变了**，上传时只需要传它。
+    ///
+    /// 语义是「相对上一帧的差异范围」，不是「有内容的范围」——
+    /// 字幕消失时它指的是刚被擦干净的那块（像素全 0，但必须传上去才擦得掉）。
+    var dirty: SubtitleDirtyRect
+
+    init(width: Int, height: Int, pixels: [UInt8], imageCount: Int,
+         dirty: SubtitleDirtyRect? = nil) {
         self.width = width
         self.height = height
         self.pixels = pixels
         self.imageCount = imageCount
+        self.dirty = dirty ?? SubtitleDirtyRect(x: 0, y: 0, width: width, height: height)
     }
 
     var isEmpty: Bool { imageCount == 0 }
 
     /// 一张全透明的同尺寸位图（用来把上一帧的字幕擦掉）。
+    ///
+    /// 这里无法只擦「上一帧画过的位置」：调用方拿到的是一张新位图，
+    /// 不知道旧内容在哪。所以整幅给 —— 好在它只在**换轨 / 关字幕**时出现一次。
     static func transparent(width: Int, height: Int) -> SubtitleBitmap {
         SubtitleBitmap(width: width, height: height,
                        pixels: [UInt8](repeating: 0, count: width * height * 4),

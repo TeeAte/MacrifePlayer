@@ -307,6 +307,10 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         onCurrentChanged?(nil)
     }
 
+    func reloadCurrentVideo() {
+        container.reloadCurrentMedia()
+    }
+
     // MARK: - 窗口（观测方法）
 
     func toggleFullscreen() {

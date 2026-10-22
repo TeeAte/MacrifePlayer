@@ -67,6 +67,15 @@ final class SubtitleDecoder {
     /// 给上层一句「这条轨是图形字幕，渲染不出来」的口实。
     private(set) var isBitmapSubtitle = false
 
+    /// 这条轨**按编解码器本身**就是图形字幕（PGS / VobSub / DVB）。
+    ///
+    /// 与上面的 `isBitmapSubtitle` 的区别很关键：那个要**解码过至少一个包**
+    /// 才会翻成 true，而建渲染器是在解第一个包之前发生的。上层的决策
+    ///（「要不要给这条轨建 libass」）必须用这一个 —— 依据是 libavcodec 的
+    /// codec descriptor 属性位 `AV_CODEC_PROP_BITMAP_SUB`，
+    /// 不需要任何样本就能下结论。
+    let isBitmapCodec: Bool
+
     // MARK: - 构造
 
     init(parameters: UnsafeMutablePointer<AVCodecParameters>,
@@ -75,6 +84,7 @@ final class SubtitleDecoder {
         self.streamIndex = streamIndex
         self.timeBase = timeBase
         self.codecName = FFmpegSupport.codecName(parameters.pointee.codec_id)
+        self.isBitmapCodec = Self.codecIsBitmap(parameters.pointee.codec_id)
 
         guard let codec = avcodec_find_decoder(parameters.pointee.codec_id) else {
             throw SubtitleError.noDecoder(codecName)
@@ -185,6 +195,17 @@ final class SubtitleDecoder {
     }
 
     // MARK: - 工具
+
+    /// 这个编解码器是不是**图形**字幕。
+    ///
+    /// 用 codec descriptor 的属性位而不是拿 `codecName` 跟字符串比：
+    /// 名字会随 FFmpeg 版本变（`hdmv_pgs_subtitle` / `dvd_subtitle` /
+    /// `dvb_subtitle` / `xsub` …），而属性位是 libavcodec 自己维护的分类，
+    /// 覆盖全部图形字幕、且新加的也不会漏。
+    private static func codecIsBitmap(_ id: AVCodecID) -> Bool {
+        guard let desc = avcodec_descriptor_get(id) else { return false }
+        return (desc.pointee.props & AV_CODEC_PROP_BITMAP_SUB) != 0
+    }
 
     private static func extradata(of par: UnsafeMutablePointer<AVCodecParameters>) -> [UInt8] {
         guard let p = par.pointee.extradata, par.pointee.extradata_size > 0 else { return [] }

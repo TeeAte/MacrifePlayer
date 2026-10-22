@@ -171,6 +171,9 @@ final class RIFEConfigPanelController: NSWindowController {
     // 7. 广播级隔行反交错 (MTS / 1080 50i/60i)
     private let deinterlacePopup = NSPopUpButton(frame: .zero, pullsDown: false)
 
+    // 8. HDR 转 SDR 色调映射 (Tone Mapping)
+    private let hdrToneMappingPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+
 
     // 底部工具条
     private let statusIndicator = NSTextField(labelWithString: "● 所有参数已实时生效")
@@ -497,6 +500,18 @@ final class RIFEConfigPanelController: NSWindowController {
         deintTip.textColor = NSColor(white: 0.65, alpha: 1.0)
         protStack.addArrangedSubview(deintTip)
 
+        // HDR 转 SDR 色调映射 (针对 HDR10 / PQ / HLG 片源)
+        hdrToneMappingPopup.addItems(withTitles: HDRToneMappingMode.allCases.map { $0.title })
+        hdrToneMappingPopup.target = self
+        hdrToneMappingPopup.action = #selector(onHDRToneMappingChanged(_:))
+        let hdrRow = makeRow(label: "HDR 转 SDR:", control: hdrToneMappingPopup)
+        protStack.addArrangedSubview(hdrRow)
+
+        let hdrTip = NSTextField(labelWithString: "💡 识别 HDR10 (PQ/BT.2020) 或 HLG 视频，在 GPU 上转为高质量 SDR 画面后再接入补帧引擎，杜绝画面发灰与光流失真。")
+        hdrTip.font = .systemFont(ofSize: 11, weight: .regular)
+        hdrTip.textColor = NSColor(white: 0.65, alpha: 1.0)
+        protStack.addArrangedSubview(hdrTip)
+
         protCard.contentView.addSubview(protStack)
         protStack.translatesAutoresizingMaskIntoConstraints = false
         pinToEdges(protStack, in: protCard.contentView)
@@ -817,6 +832,10 @@ final class RIFEConfigPanelController: NSWindowController {
             deinterlacePopup.selectItem(at: deintIdx)
         }
 
+        // 8. HDR 转 SDR 色调映射
+        if let hdrIdx = HDRToneMappingMode.allCases.firstIndex(of: s.hdrToneMapping) {
+            hdrToneMappingPopup.selectItem(at: hdrIdx)
+        }
 
         isUpdatingUI = false
     }
@@ -1075,6 +1094,16 @@ final class RIFEConfigPanelController: NSWindowController {
         let idx = deinterlacePopup.indexOfSelectedItem
         if idx >= 0 && idx < DeinterlaceMode.allCases.count {
             PlaybackSettings.shared.deinterlaceMode = DeinterlaceMode.allCases[idx]
+        }
+    }
+
+    @objc private func onHDRToneMappingChanged(_ sender: Any?) {
+        guard !isUpdatingUI else { return }
+        let idx = hdrToneMappingPopup.indexOfSelectedItem
+        if idx >= 0 && idx < HDRToneMappingMode.allCases.count {
+            let mode = HDRToneMappingMode.allCases[idx]
+            PlaybackSettings.shared.hdrToneMapping = mode
+            statusIndicator.stringValue = "● 已切换 HDR 转 SDR: \(mode.title)"
         }
     }
 

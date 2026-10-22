@@ -143,6 +143,8 @@ final class ControlOverlayView: NSView {
     var onCycleMetalFXTarget: (() -> Void)?
     var onSelectAnime4K: ((Anime4KOption) -> Void)?
     var onDecodePathChanged: ((DecodeMode) -> Void)?
+    /// 重新载入当前视频并恢复进度
+    var onReload: (() -> Void)?
     /// 需要提示给用户的一句话（后端未接入、设置已保存等）。由容器弹状态胶囊。
     var onNotice: ((String) -> Void)?
 
@@ -154,6 +156,7 @@ final class ControlOverlayView: NSView {
     let playButton = OverlayPillButton()
     let backButton = OverlayPillButton()
     let forwardButton = OverlayPillButton()
+    let reloadButton = OverlayPillButton()
     let progressSlider = SeekSlider()
     let timeLabel = NSTextField(labelWithString: "--:-- / --:--")
     let rifeButton = OverlayPillButton()
@@ -292,7 +295,7 @@ final class ControlOverlayView: NSView {
             decodePathLabel.centerYAnchor.constraint(equalTo: decodePathPill.centerYAnchor),
         ])
 
-        for v in [playButton, backButton, forwardButton, progressSlider, timeLabel,
+        for v in [playButton, backButton, forwardButton, reloadButton, progressSlider, timeLabel,
                   rifeButton, metalFXButton, anime4KButton, decodePathPill,
                   volumeIcon, volumeSlider, playlistButton, fullscreenButton] {
             overlayView.addSubview(v)
@@ -310,6 +313,7 @@ final class ControlOverlayView: NSView {
             (playButton,        "play.fill",         "播放"),
             (backButton,        "gobackward.5",      "后退 5 秒"),
             (forwardButton,     "goforward.5",       "前进 5 秒"),
+            (reloadButton,      "arrow.clockwise",   "重新载入视频 (恢复当前进度)"),
             (playlistButton,    "list.bullet",       L10n.t("playlist")),
             (fullscreenButton,  "arrow.up.left.and.arrow.down.right", "全屏"),
         ] {
@@ -342,6 +346,9 @@ final class ControlOverlayView: NSView {
         forwardButton.target = self
         forwardButton.action = #selector(clickForward(_:))
 
+        reloadButton.target = self
+        reloadButton.action = #selector(clickReload(_:))
+
         playlistButton.target = self
         playlistButton.action = #selector(clickPlaylist(_:))
 
@@ -352,7 +359,9 @@ final class ControlOverlayView: NSView {
         progressSlider.onBeginTracking = { }
         progressSlider.onPreviewValueChanged = { [weak self] normalized in
             guard let self, self.isEnabled else { return }
-            self.onSeekPreview?(normalized * self.knownDuration)
+            let t = normalized * self.knownDuration
+            self.setTime(current: t, duration: self.knownDuration)
+            self.onSeekPreview?(t)
         }
         progressSlider.onEndTracking = { [weak self] normalized in
             guard let self, self.isEnabled else { return }
@@ -410,7 +419,12 @@ final class ControlOverlayView: NSView {
             forwardButton.widthAnchor.constraint(equalToConstant: 26),
             forwardButton.heightAnchor.constraint(equalToConstant: 24),
 
-            timeLabel.leadingAnchor.constraint(equalTo: forwardButton.trailingAnchor, constant: 10),
+            reloadButton.leadingAnchor.constraint(equalTo: forwardButton.trailingAnchor, constant: 4),
+            reloadButton.centerYAnchor.constraint(equalTo: overlayView.centerYAnchor),
+            reloadButton.widthAnchor.constraint(equalToConstant: 26),
+            reloadButton.heightAnchor.constraint(equalToConstant: 24),
+
+            timeLabel.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor, constant: 10),
             timeLabel.centerYAnchor.constraint(equalTo: overlayView.centerYAnchor),
 
             progressSlider.leadingAnchor.constraint(equalTo: timeLabel.trailingAnchor, constant: 6),
@@ -562,7 +576,7 @@ final class ControlOverlayView: NSView {
     /// 没有打开文件时整条置灰 —— 原版文案 `no_video_opened` = "未打开视频" 就是这个状态。
     func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
-        for v in [playButton, backButton, forwardButton, progressSlider, rifeButton,
+        for v in [playButton, backButton, forwardButton, reloadButton, progressSlider, rifeButton,
                   metalFXButton, anime4KButton, volumeSlider, playlistButton, fullscreenButton] {
             v.isEnabled = enabled
         }
@@ -759,6 +773,8 @@ final class ControlOverlayView: NSView {
     @objc private func clickBackward(_ sender: Any?) { onSeekRelative?(-5) }
 
     @objc private func clickForward(_ sender: Any?) { onSeekRelative?(5) }
+
+    @objc private func clickReload(_ sender: Any?) { onReload?() }
 
     @objc private func clickPlaylist(_ sender: Any?) { onTogglePlaylist?() }
 

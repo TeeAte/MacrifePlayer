@@ -398,6 +398,10 @@ final class StatsPanelView: NSView {
             if !v.colorTransfer.isEmpty { color.append(v.colorTransfer) }
             if !v.colorSpace.isEmpty { color.append(v.colorSpace) }
             if !v.colorRange.isEmpty { color.append(v.colorRange) }
+            let tm = PlaybackSettings.shared.hdrToneMapping
+            if (v.colorTransfer.contains("2084") || v.colorTransfer.contains("arib")) && tm != .off {
+                color.append("ToneMap(\(tm.rawValue.uppercased()))")
+            }
             // 采集卡：色彩不是从文件元数据来的，而是从每个样本缓冲**实测**的
             //（原版 VideoColorInfo.resolvedSDR）。没有它就只能看到「像素 nv12」，
             // 范围/矩阵用错了也无从判断。

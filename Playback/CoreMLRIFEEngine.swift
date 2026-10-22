@@ -123,15 +123,15 @@ final class CoreMLRIFEEngine {
     }
 
     private func configKey(settings: PlaybackSettings, w: Int, h: Int,
-                           fullRange: Bool, bt709: Bool) -> String {
-        "\(settings.rifeModel.rawValue)|\(w)x\(h)|\(fullRange ? 1 : 0)|\(bt709 ? 1 : 0)"
+                           fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) -> String {
+        "\(settings.rifeModel.rawValue)|\(w)x\(h)|\(fullRange ? 1 : 0)|\(colorSpaceCode)|\(is10Bit ? 1 : 0)"
     }
 
     // MARK: 对外接口
 
     /// 当前是否有**配置匹配**的引擎可插帧（PlaybackEngine 的路由判据）。
     func isReady(settings: PlaybackSettings, sourceWidth: Int, sourceHeight: Int,
-                 fullRange: Bool, bt709: Bool) -> Bool {
+                 fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) -> Bool {
         guard !permanentlyFailed,
               settings.rifeRateMode != .off,
               Self.variantName(for: settings.rifeModel) != nil,
@@ -139,18 +139,20 @@ final class CoreMLRIFEEngine {
         lock.lock(); defer { lock.unlock() }
         return !engines.isEmpty && engineConfig == configKey(settings: settings,
                                                              w: sourceWidth, h: sourceHeight,
-                                                             fullRange: fullRange, bt709: bt709)
+                                                             fullRange: fullRange,
+                                                             colorSpaceCode: colorSpaceCode,
+                                                             is10Bit: is10Bit)
     }
 
     /// 若没有匹配配置的引擎，异步拉起初始化（模型加载 + ANE 编译，秒级 ×2 实例）。
     func prewarmIfNeeded(settings: PlaybackSettings, sourceWidth: Int, sourceHeight: Int,
-                         fullRange: Bool, bt709: Bool) {
+                         fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) {
         guard !permanentlyFailed,
               settings.rifeRateMode != .off,
               let variant = Self.variantName(for: settings.rifeModel),
               sourceWidth > 0, sourceHeight > 0 else { return }
         let key = configKey(settings: settings, w: sourceWidth, h: sourceHeight,
-                            fullRange: fullRange, bt709: bt709)
+                            fullRange: fullRange, colorSpaceCode: colorSpaceCode, is10Bit: is10Bit)
         lock.lock()
         if !engines.isEmpty && engineConfig == key { lock.unlock(); return }
         if pendingConfig == key { lock.unlock(); return }
@@ -168,7 +170,7 @@ final class CoreMLRIFEEngine {
                 do {
                     let eng = try Engine(modelVariant: usedVariant,
                                          sourceWidth: sourceWidth, sourceHeight: sourceHeight,
-                                         fullRange: fullRange, bt709: bt709)
+                                         fullRange: fullRange, colorSpaceCode: colorSpaceCode, is10Bit: is10Bit)
                     eng.warmup()
                     built.append(eng)
                 } catch {
@@ -187,7 +189,7 @@ final class CoreMLRIFEEngine {
                         do {
                             let eng = try Engine(modelVariant: usedVariant,
                                                  sourceWidth: sourceWidth, sourceHeight: sourceHeight,
-                                                 fullRange: fullRange, bt709: bt709)
+                                                 fullRange: fullRange, colorSpaceCode: colorSpaceCode, is10Bit: is10Bit)
                             eng.warmup()
                             built.append(eng)
                         } catch {
@@ -217,8 +219,10 @@ final class CoreMLRIFEEngine {
             self.lock.unlock()
             // 报**实际生效**的档位：回落时 variant 还是用户选的那个，
             // 打它出来会让人以为 heavy 真的跑起来了（排查时差点被这条骗过）。
-            NSLog("[CoreMLRIFE] 真模型引擎就绪 x%d: %@ (%dx%d 源)%@", built.count, usedVariant,
+            NSLog("[CoreMLRIFE] 真模型引擎就绪 x%d: %@ (%dx%d 源%@%@)%@", built.count, usedVariant,
                   sourceWidth, sourceHeight,
+                  is10Bit ? " 10-bit" : "",
+                  colorSpaceCode == 2 ? " BT.2020" : (colorSpaceCode == 1 ? " BT.709" : " BT.601"),
                   usedVariant == variant ? "" : " 〔由 \(variant) 回落〕")
         }
     }
@@ -268,7 +272,9 @@ final class CoreMLRIFEEngine {
                                           isBT709: f0.isBT709,
                                           colorSpaceCode: f0.colorSpaceCode,
                                           isFullRange: f0.isFullRange,
-                                          isInterpolated: false)
+                                          isInterpolated: false,
+                                          transferFunction: f0.transferFunction,
+                                          peakNits: f0.peakNits)
         } else {
             f0Uniform = f0
         }
@@ -279,10 +285,12 @@ final class CoreMLRIFEEngine {
                                         timestep: timestep) else { return nil }
             countLock.lock(); interpolatedFrames += 1; countLock.unlock()
             return DecodedVideoFrame(pixelBuffer: pb, pts: pts,
-                                     isBT709: f1.isBT709,
-                                     colorSpaceCode: f1.colorSpaceCode,
-                                     isFullRange: f1.isFullRange,
-                                     isInterpolated: true)
+                                     isBT709: f0.isBT709,
+                                     colorSpaceCode: f0.colorSpaceCode,
+                                     isFullRange: f0.isFullRange,
+                                     isInterpolated: true,
+                                     transferFunction: f0.transferFunction,
+                                     peakNits: f0.peakNits)
         }
 
         func copyFrame(from src: CVPixelBuffer, pts: Double) -> DecodedVideoFrame? {
@@ -290,10 +298,12 @@ final class CoreMLRIFEEngine {
             guard let pb = eng.roundtripNV12(from: src) else { return nil }
             countLock.lock(); interpolatedFrames += 1; countLock.unlock()
             return DecodedVideoFrame(pixelBuffer: pb, pts: pts,
-                                     isBT709: f1.isBT709,
-                                     colorSpaceCode: f1.colorSpaceCode,
-                                     isFullRange: f1.isFullRange,
-                                     isInterpolated: false)
+                                     isBT709: f0.isBT709,
+                                     colorSpaceCode: f0.colorSpaceCode,
+                                     isFullRange: f0.isFullRange,
+                                     isInterpolated: false,
+                                     transferFunction: f0.transferFunction,
+                                     peakNits: f0.peakNits)
         }
 
         for tick in ticks {
@@ -320,7 +330,7 @@ final class CoreMLRIFEEngine {
 
     // MARK: 帧间统计（与旧引擎逐行同构；调度线程调用，无共享状态）
 
-    static func areFramesSimilar(_ b0: CVPixelBuffer, _ b1: CVPixelBuffer) -> Bool {
+    static func areFramesSimilar(_ b0: CVPixelBuffer, _ b1: CVPixelBuffer, threshold: Double = 0.0008) -> Bool {
         let w = CVPixelBufferGetWidth(b0)
         let h = CVPixelBufferGetHeight(b0)
         guard w == CVPixelBufferGetWidth(b1), h == CVPixelBufferGetHeight(b1), w > 0, h > 0 else {
@@ -342,24 +352,45 @@ final class CoreMLRIFEEngine {
         let stride1 = CVPixelBufferGetBytesPerRowOfPlane(b1, 0)
         let stepX = max(1, w >> 6)
         let stepY = max(1, h >> 6)
-        let u0 = p0.assumingMemoryBound(to: UInt8.self)
-        let u1 = p1.assumingMemoryBound(to: UInt8.self)
+        let fmt = CVPixelBufferGetPixelFormatType(b0)
+        let is10Bit = (fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                       fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
         var diffSum: Double = 0
         var count: Double = 0
         var y = 0
-        while y < h {
-            let row0 = u0.advanced(by: y * stride0)
-            let row1 = u1.advanced(by: y * stride1)
-            var x = 0
-            while x < w {
-                diffSum += abs(Double(row0[x]) - Double(row1[x]))
-                count += 1
-                x += stepX
+        if is10Bit {
+            let u0 = p0.assumingMemoryBound(to: UInt16.self)
+            let u1 = p1.assumingMemoryBound(to: UInt16.self)
+            let wordStride0 = stride0 / 2
+            let wordStride1 = stride1 / 2
+            while y < h {
+                let row0 = u0.advanced(by: y * wordStride0)
+                let row1 = u1.advanced(by: y * wordStride1)
+                var x = 0
+                while x < w {
+                    diffSum += abs(Double(row0[x] >> 2) - Double(row1[x] >> 2))
+                    count += 1
+                    x += stepX
+                }
+                y += stepY
             }
-            y += stepY
+        } else {
+            let u0 = p0.assumingMemoryBound(to: UInt8.self)
+            let u1 = p1.assumingMemoryBound(to: UInt8.self)
+            while y < h {
+                let row0 = u0.advanced(by: y * stride0)
+                let row1 = u1.advanced(by: y * stride1)
+                var x = 0
+                while x < w {
+                    diffSum += abs(Double(row0[x]) - Double(row1[x]))
+                    count += 1
+                    x += stepX
+                }
+                y += stepY
+            }
         }
         guard count > 0 else { return false }
-        return (diffSum / count) / 255.0 < 0.003
+        return (diffSum / count) / 255.0 < threshold
     }
 
     static func sampleDownscaledLuma(from pb: CVPixelBuffer) -> [UInt8] {
@@ -369,19 +400,36 @@ final class CoreMLRIFEEngine {
         let w = CVPixelBufferGetWidth(pb)
         let h = CVPixelBufferGetHeight(pb)
         let bpr = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
-        let ptr = yBase.assumingMemoryBound(to: UInt8.self)
         let cols = 32, rows = 18
         var samples = [UInt8](repeating: 0, count: cols * rows)
         let dx = max(1, w / cols)
         let dy = max(1, h / rows)
         var idx = 0
-        for r in 0..<rows {
-            let y = min(h - 1, r * dy)
-            let rowOffset = y * bpr
-            for c in 0..<cols {
-                let x = min(w - 1, c * dx)
-                samples[idx] = ptr[rowOffset + x]
-                idx += 1
+        let fmt = CVPixelBufferGetPixelFormatType(pb)
+        let is10Bit = (fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                       fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+        if is10Bit {
+            let ptr = yBase.assumingMemoryBound(to: UInt16.self)
+            let wordBpr = bpr / 2
+            for r in 0..<rows {
+                let y = min(h - 1, r * dy)
+                let rowOffset = y * wordBpr
+                for c in 0..<cols {
+                    let x = min(w - 1, c * dx)
+                    samples[idx] = UInt8((ptr[rowOffset + x] >> 2) & 0xFF)
+                    idx += 1
+                }
+            }
+        } else {
+            let ptr = yBase.assumingMemoryBound(to: UInt8.self)
+            for r in 0..<rows {
+                let y = min(h - 1, r * dy)
+                let rowOffset = y * bpr
+                for c in 0..<cols {
+                    let x = min(w - 1, c * dx)
+                    samples[idx] = ptr[rowOffset + x]
+                    idx += 1
+                }
             }
         }
         return samples
@@ -414,7 +462,8 @@ private final class Engine: @unchecked Sendable {
     let srcW: Int
     let srcH: Int
     private let fullRange: Bool
-    private let bt709: Bool
+    private let colorSpaceCode: Int32
+    private let is10Bit: Bool
 
     // MARK: 持久缓冲（零拷贝 CoreML 原生数组）
     private struct Store { let array: MLMultiArray; let buffer: MTLBuffer }
@@ -483,13 +532,14 @@ private final class Engine: @unchecked Sendable {
         var srcWidth: UInt32 = 0; var srcHeight: UInt32 = 0
         var dstWidth: UInt32 = 0; var dstHeight: UInt32 = 0
         var fullRange: Float = 0     // 1.0 = full range
-        var is709: Float = 0         // 1.0 = BT.709
+        var colorSpace: Float = 0    // 0 = BT.601, 1 = BT.709, 2 = BT.2020
     }
     private struct NV12OutParams {
         var width: UInt32 = 0; var height: UInt32 = 0
         var yStride: UInt32 = 0; var uvOffset: UInt32 = 0; var uvStride: UInt32 = 0
         var fullRange: Float = 0
-        var is709: Float = 0
+        var colorSpace: Float = 0    // 0 = BT.601, 1 = BT.709, 2 = BT.2020
+        var is10Bit: UInt32 = 0      // 0 = 8-bit, 1 = 10-bit
     }
 
     /// 与 Metal 端 `YUY2ConvParams` 完全同布局（4 × UInt32 = 16 字节）。
@@ -499,7 +549,7 @@ private final class Engine: @unchecked Sendable {
     }
 
     init(modelVariant: String, sourceWidth: Int, sourceHeight: Int,
-         fullRange: Bool, bt709: Bool) throws {
+         fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) throws {
         guard let dev = MTLCreateSystemDefaultDevice(),
               let q = dev.makeCommandQueue() else {
             throw EngineError.setup("没有可用的 Metal 设备")
@@ -508,7 +558,8 @@ private final class Engine: @unchecked Sendable {
         pageSize = Int(getpagesize())
         srcW = sourceWidth; srcH = sourceHeight
         self.fullRange = fullRange
-        self.bt709 = bt709
+        self.colorSpaceCode = colorSpaceCode
+        self.is10Bit = is10Bit
 
         var cache: CVMetalTextureCache?
         if CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, dev, nil, &cache) == kCVReturnSuccess {
@@ -688,8 +739,14 @@ private final class Engine: @unchecked Sendable {
     private func ensurePool() {
         poolLock.lock(); defer { poolLock.unlock() }
         if pool != nil { return }
+        let formatType: OSType
+        if is10Bit {
+            formatType = fullRange ? kCVPixelFormatType_420YpCbCr10BiPlanarFullRange : kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+        } else {
+            formatType = fullRange ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        }
         let pbAttrs: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelBufferPixelFormatTypeKey: formatType,
             kCVPixelBufferWidthKey: srcW,
             kCVPixelBufferHeightKey: srcH,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
@@ -822,12 +879,17 @@ private final class Engine: @unchecked Sendable {
         texCacheOps += 1
         if texCacheOps % 64 == 0 { CVMetalTextureCacheFlush(cache, 0) }
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
+        let fmt = CVPixelBufferGetPixelFormatType(pb)
+        let bufIs10Bit = (fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                          fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+        let yFmt: MTLPixelFormat = bufIs10Bit ? .r16Unorm : .r8Unorm
+        let uvFmt: MTLPixelFormat = bufIs10Bit ? .rg16Unorm : .rg8Unorm
         var yt: CVMetalTexture?, uvt: CVMetalTexture?
         guard CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pb, nil,
-                                                        .r8Unorm, w, h, 0, &yt) == kCVReturnSuccess,
+                                                        yFmt, w, h, 0, &yt) == kCVReturnSuccess,
               let yTex = CVMetalTextureGetTexture(yt!),
               CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pb, nil,
-                                                        .rg8Unorm, w/2, h/2, 1, &uvt) == kCVReturnSuccess,
+                                                        uvFmt, w/2, h/2, 1, &uvt) == kCVReturnSuccess,
               let uvTex = CVMetalTextureGetTexture(uvt!) else { return nil }
         // CVMetalTexture 只需活到 command buffer 完成 —— 本引擎所有使用点都在
         // 函数内同步 flushAndWait（见 convertFrame / roundtripNV12），局部变量
@@ -845,13 +907,13 @@ private final class Engine: @unchecked Sendable {
         begin()
         var pIn = NV12InParams(srcWidth: UInt32(srcW), srcHeight: UInt32(srcH),
                                dstWidth: UInt32(modelW), dstHeight: UInt32(modelH),
-                               fullRange: fullRange ? 1 : 0, is709: bt709 ? 1 : 0)
+                               fullRange: fullRange ? 1 : 0, colorSpace: Float(colorSpaceCode))
         try dispatch("nv12_to_rgb_nchw", [(imgRing[imgSlot].buffer, 0)],
                      textures: [texs.y, texs.uv],
                      bytes: &pIn, length: MemoryLayout<NV12InParams>.size)
         var pFull = NV12InParams(srcWidth: UInt32(srcW), srcHeight: UInt32(srcH),
                                  dstWidth: UInt32(srcW), dstHeight: UInt32(srcH),
-                                 fullRange: fullRange ? 1 : 0, is709: bt709 ? 1 : 0)
+                                 fullRange: fullRange ? 1 : 0, colorSpace: Float(colorSpaceCode))
         try dispatch("nv12_to_rgb_nchw", [(fullRing[fullSlot], 0)],
                      textures: [texs.y, texs.uv],
                      bytes: &pFull, length: MemoryLayout<NV12InParams>.size,
@@ -1164,7 +1226,9 @@ private final class Engine: @unchecked Sendable {
                              params: NV12OutParams(width: UInt32(srcW), height: UInt32(srcH),
                                                    yStride: UInt32(yStride), uvOffset: UInt32(uvOffset),
                                                    uvStride: UInt32(uvStride),
-                                                   fullRange: fullRange ? 1 : 0, is709: bt709 ? 1 : 0),
+                                                   fullRange: fullRange ? 1 : 0,
+                                                   colorSpace: Float(colorSpaceCode),
+                                                   is10Bit: is10Bit ? 1 : 0),
                              yBase: yBase, totalBytes: total)
         pendingNV12 = ctx
         return ctx
@@ -1213,7 +1277,7 @@ private final class Engine: @unchecked Sendable {
             begin()
             var pFull = NV12InParams(srcWidth: UInt32(srcW), srcHeight: UInt32(srcH),
                                      dstWidth: UInt32(srcW), dstHeight: UInt32(srcH),
-                                     fullRange: fullRange ? 1 : 0, is709: bt709 ? 1 : 0)
+                                     fullRange: fullRange ? 1 : 0, colorSpace: Float(colorSpaceCode))
             try dispatch("nv12_to_rgb_nchw", [(outRGBFull, 0)],
                          textures: [texs.y, texs.uv],
                          bytes: &pFull, length: MemoryLayout<NV12InParams>.size,
@@ -1558,7 +1622,7 @@ private extension Engine {
         uint dstWidth;
         uint dstHeight;
         float fullRange;
-        float is709;
+        float colorSpace; // 0 = BT.601, 1 = BT.709, 2 = BT.2020
     };
 
     kernel void nv12_to_rgb_nchw(texture2d<float, access::read> yTex   [[texture(0)]],
@@ -1588,11 +1652,18 @@ private extension Engine {
         }
 
         float r, g, b;
-        if (p.is709 > 0.5f) {
+        if (p.colorSpace > 1.5f) {
+            // BT.2020 (HDR)
+            r = yv + 1.4746f * cr;
+            g = yv - 0.16455f * cb - 0.5714f * cr;
+            b = yv + 1.8814f * cb;
+        } else if (p.colorSpace > 0.5f) {
+            // BT.709
             r = yv + 1.5748f * cr;
             b = yv + 1.8556f * cb;
             g = yv - 0.1873f * cb - 0.4681f * cr;
         } else {
+            // BT.601
             r = yv + 1.4020f * cr;
             b = yv + 1.7720f * cb;
             g = yv - 0.3441f * cb - 0.7141f * cr;
@@ -1612,12 +1683,28 @@ private extension Engine {
         uint uvOffset;   // UV 平面相对缓冲基址的字节偏移
         uint uvStride;   // UV 平面行距（字节）
         float fullRange;
-        float is709;
+        float colorSpace; // 0 = 601, 1 = 709, 2 = 2020
+        uint is10Bit;     // 0 = 8bit, 1 = 10bit
     };
 
-    static inline void rgb_to_yuv(float r, float g, float b, bool fullRange, bool is709,
+    static inline void rgb_to_yuv(float r, float g, float b, bool fullRange, float colorSpace,
                                   thread float &Y, thread float &Cb, thread float &Cr) {
-        if (is709) {
+        if (colorSpace > 1.5f) {
+            // BT.2020
+            if (fullRange) {
+                Y  = 0.2627f * r + 0.6780f * g + 0.0593f * b;
+                Cb = (b - Y) / 1.8814f + 0.5f;
+                Cr = (r - Y) / 1.4746f + 0.5f;
+            } else {
+                float normY = 0.2627f * r + 0.6780f * g + 0.0593f * b;
+                float normCb = (b - normY) / 1.8814f;
+                float normCr = (r - normY) / 1.4746f;
+                Y  = (16.0f + 219.0f * normY) / 255.0f;
+                Cb = (128.0f + 224.0f * normCb) / 255.0f;
+                Cr = (128.0f + 224.0f * normCr) / 255.0f;
+            }
+        } else if (colorSpace > 0.5f) {
+            // BT.709
             if (fullRange) {
                 Y  = 0.2126f * r + 0.7152f * g + 0.0722f * b;
                 Cb = -0.1146f * r - 0.3854f * g + 0.5f * b + 0.5f;
@@ -1628,6 +1715,7 @@ private extension Engine {
                 Cr = (128.0f + 112.0f * r - 93.786f * g - 18.214f * b) / 255.0f;
             }
         } else {
+            // BT.601
             if (fullRange) {
                 Y  = 0.299f * r + 0.587f * g + 0.114f * b;
                 Cb = -0.1687f * r - 0.3313f * g + 0.5f * b + 0.5f;
@@ -1651,8 +1739,13 @@ private extension Engine {
         float g = (float)src[plane + gid.y * W + gid.x];
         float b = (float)src[2 * plane + gid.y * W + gid.x];
         float Y, Cb, Cr;
-        rgb_to_yuv(r, g, b, p.fullRange > 0.5f, p.is709 > 0.5f, Y, Cb, Cr);
-        out[gid.y * p.yStride + gid.x] = (uchar)(clamp(Y, 0.0f, 1.0f) * 255.0f + 0.5f);
+        rgb_to_yuv(r, g, b, p.fullRange > 0.5f, p.colorSpace, Y, Cb, Cr);
+        if (p.is10Bit != 0) {
+            device ushort *out16 = (device ushort *)out;
+            out16[gid.y * (p.yStride / 2) + gid.x] = (ushort)(clamp(Y, 0.0f, 1.0f) * 65535.0f + 0.5f);
+        } else {
+            out[gid.y * p.yStride + gid.x] = (uchar)(clamp(Y, 0.0f, 1.0f) * 255.0f + 0.5f);
+        }
     }
 
     kernel void rgb_nchw_to_nv12_uv(const device half *src   [[buffer(0)]],
@@ -1675,10 +1768,16 @@ private extension Engine {
         }
         r /= 4.0f; g /= 4.0f; b /= 4.0f;
         float Y, Cb, Cr;
-        rgb_to_yuv(r, g, b, p.fullRange > 0.5f, p.is709 > 0.5f, Y, Cb, Cr);
-        device uchar *uv = out + p.uvOffset;
-        uv[gid.y * p.uvStride + gid.x * 2]     = (uchar)(clamp(Cb, 0.0f, 1.0f) * 255.0f + 0.5f);
-        uv[gid.y * p.uvStride + gid.x * 2 + 1] = (uchar)(clamp(Cr, 0.0f, 1.0f) * 255.0f + 0.5f);
+        rgb_to_yuv(r, g, b, p.fullRange > 0.5f, p.colorSpace, Y, Cb, Cr);
+        if (p.is10Bit != 0) {
+            device ushort *uv16 = (device ushort *)(out + p.uvOffset);
+            uv16[gid.y * (p.uvStride / 2) + gid.x * 2]     = (ushort)(clamp(Cb, 0.0f, 1.0f) * 65535.0f + 0.5f);
+            uv16[gid.y * (p.uvStride / 2) + gid.x * 2 + 1] = (ushort)(clamp(Cr, 0.0f, 1.0f) * 65535.0f + 0.5f);
+        } else {
+            device uchar *uv = out + p.uvOffset;
+            uv[gid.y * p.uvStride + gid.x * 2]     = (uchar)(clamp(Cb, 0.0f, 1.0f) * 255.0f + 0.5f);
+            uv[gid.y * p.uvStride + gid.x * 2 + 1] = (uchar)(clamp(Cr, 0.0f, 1.0f) * 255.0f + 0.5f);
+        }
     }
 
     // ===== 打包 4:2:2（YUY2 / 'yuvs'）→ 双平面 NV12 =====

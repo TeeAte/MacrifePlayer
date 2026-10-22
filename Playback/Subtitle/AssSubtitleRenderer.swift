@@ -103,6 +103,27 @@ final class AssSubtitleRenderer {
     /// 最近一次渲染叠了几张图。
     private(set) var lastImageCount = 0
 
+    /// ┌ 复用缓冲：一次分配，之后每帧原地改
+    /// │
+    /// │ 原来每帧 `[UInt8](repeating: 0, count: w*h*4)`：4K 下 3584×2160×4 ≈ 29.5MB
+    /// │ 分配 + 逐字节清零，23.976fps 就是 700MB/s 起步的纯内存流量；
+    /// │ 实测主线程 84% 的采样都停在这一行。
+    /// │
+    /// │ 现在只在**尺寸变化**时重分配，每帧只清「上一帧画过的那块」。
+    /// └
+    private var scratch: [UInt8] = []
+    /// 上一帧真正画过的区域。下一次合成前只清这一块 —— 其余地方本来就是 0。
+    private var lastDrawnRect = SubtitleDirtyRect.empty
+
+    /// 诊断：`change` 为什么老是判成「有变化」。
+    ///
+    /// 空 track 理论上应该恒返回 0（没有图 → 与上一帧相同），可实测每帧都在重合成。
+    /// 把「调用次数 / 非零次数 / 最近一次的值」记下来，验收时一眼能看出
+    /// 是 libass 在报变化（1=位置变、2=内容变），还是 `needsRecompose` 没清干净。
+    private var renderCalls = 0
+    private var changeNonZeroCalls = 0
+    private var lastChangeValue: Int32 = 0
+
     /// 建 track 用的原始素材，`resetTrack()` 要拿它重建。
     ///
     /// 留一份的理由见 `resetTrack()` —— seek 之后必须把 track 清空重来，
@@ -343,34 +364,84 @@ final class AssSubtitleRenderer {
 
         lock.lock(); defer { lock.unlock() }
 
+        ensureScratch(width: width, height: height)
+
         guard let r = renderer, let t = track else {
             // 没有可用 track（libass 挂了 / 没字幕）：上一帧若画过东西，
-            // 得给一张透明的把它擦掉；否则什么都不用做。
+            // 得把它擦掉；否则什么都不用做。
             guard needsRecompose || lastImageCount > 0 else { return nil }
             needsRecompose = false
             lastImageCount = 0
-            return SubtitleBitmap.transparent(width: width, height: height)
-        }
-
-        if width != frameWidth || height != frameHeight {
-            ass_set_frame_size(r, Int32(width), Int32(height))
-            frameWidth = width
-            frameHeight = height
-            needsRecompose = true
+            return erasePreviousFrame(width: width, height: height)
         }
 
         var change: Int32 = 0
         let head = ass_render_frame(r, t, Int64((time * 1000).rounded()), &change)
+        renderCalls += 1
+        lastChangeValue = change
+        if change != 0 { changeNonZeroCalls += 1 }
 
         // libass 说画面没变、尺寸也没变 → 不必重做合成，更不必重传纹理。
         if change == 0 && !needsRecompose { return nil }
         needsRecompose = false
 
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let count = Self.composite(head, into: &pixels, width: width, height: height)
-        lastImageCount = count
+        return compose(head, width: width, height: height)
+    }
+
+    /// 尺寸对齐：变化时重分配 scratch，并把新尺寸交给 libass。
+    private func ensureScratch(width: Int, height: Int) {
+        guard width != frameWidth || height != frameHeight else { return }
+        frameWidth = width
+        frameHeight = height
+        scratch = [UInt8](repeating: 0, count: width * height * 4)
+        lastDrawnRect = .empty
+        needsRecompose = true
+        if let r = renderer { ass_set_frame_size(r, Int32(width), Int32(height)) }
+    }
+
+    /// 把上一帧画过的位置抹成透明。返回的位图只带那一块 —— 内容全 0，
+    /// 但必须传上去才擦得掉（GPU 纹理不会自己忘掉）。
+    private func erasePreviousFrame(width: Int, height: Int) -> SubtitleBitmap? {
+        let cleared = lastDrawnRect.clamped(width: width, height: height)
+        lastDrawnRect = .empty
+        guard !cleared.isEmpty else {
+            // 没有「上一帧画过的地方」可清：整幅透明交出去（换轨/首次建立时的兜底）。
+            return SubtitleBitmap.transparent(width: width, height: height)
+        }
+        clear(cleared)
         return SubtitleBitmap(width: width, height: height,
-                              pixels: pixels, imageCount: count)
+                              pixels: scratch, imageCount: 0, dirty: cleared)
+    }
+
+    /// 合成一帧：**先只清上一帧的区域，再画新的**，最后把两块并起来当脏区交出去。
+    private func compose(_ head: UnsafeMutablePointer<ASS_Image>?,
+                         width: Int, height: Int) -> SubtitleBitmap? {
+        let cleared = lastDrawnRect.clamped(width: width, height: height)
+        if !cleared.isEmpty { clear(cleared) }
+
+        var drawn = SubtitleDirtyRect.empty
+        let count = Self.composite(head, into: &scratch,
+                                  width: width, height: height, drawn: &drawn)
+        lastImageCount = count
+        lastDrawnRect = drawn.clamped(width: width, height: height)
+
+        // 需要上传的范围 = 擦掉的 ∪ 新画的。两者都空 = 这一帧什么都没变。
+        let dirty = cleared.union(lastDrawnRect)
+        guard !dirty.isEmpty else { return nil }
+        return SubtitleBitmap(width: width, height: height,
+                              pixels: scratch, imageCount: count, dirty: dirty)
+    }
+
+    /// 把一块区域清零（逐行 memset，不是整幅分配）。
+    private func clear(_ rect: SubtitleDirtyRect) {
+        let r = rect.clamped(width: frameWidth, height: frameHeight)
+        guard !r.isEmpty, scratch.count >= frameWidth * frameHeight * 4 else { return }
+        scratch.withUnsafeMutableBufferPointer { buf in
+            guard let base = buf.baseAddress else { return }
+            for y in r.y..<(r.y + r.height) {
+                memset(base + (y * frameWidth + r.x) * 4, 0, r.width * 4)
+            }
+        }
     }
 
     /// 强制重做一次合成，把「此刻的字幕层」原样交出来。
@@ -403,9 +474,10 @@ final class AssSubtitleRenderer {
     ///   3. 链表顺序就是绘制顺序，**不能重排**（阴影要垫在描边下面，描边再垫正文下面）。
     private static func composite(_ head: UnsafeMutablePointer<ASS_Image>?,
                                   into pixels: inout [UInt8],
-                                  width: Int, height: Int) -> Int {
+                                  width: Int, height: Int,
+                                  drawn: inout SubtitleDirtyRect) -> Int {
         var node = head
-        var drawn = 0
+        var drawnCount = 0
 
         while let n = node {
             let img = n.pointee
@@ -423,7 +495,11 @@ final class AssSubtitleRenderer {
 
             let baseX = Int(img.dst_x)
             let baseY = Int(img.dst_y)
-            drawn += 1
+            drawnCount += 1
+
+            // 记下这张图落在哪：调用方据此把「本帧变了哪块」传给上传层。
+            // 这里记的是**未裁剪**的矩形，裁剪由 SubtitleDirtyRect.clamped 统一做。
+            drawn = drawn.union(SubtitleDirtyRect(x: baseX, y: baseY, width: iw, height: ih))
 
             for y in 0..<ih {
                 let py = baseY + y
@@ -448,7 +524,7 @@ final class AssSubtitleRenderer {
                 }
             }
         }
-        return drawn
+        return drawnCount
     }
 
     // MARK: - dev 观测
@@ -460,6 +536,9 @@ final class AssSubtitleRenderer {
         guard track != nil else { return "无字幕轨" }
         let kind = isExternalScript ? "外挂" : "内封"
         return "\(kind) · 事件 \(eventCount) 条 · 本帧 \(lastImageCount) 张图"
+             + " · 脏区 \(lastDrawnRect.debugText)"
+             + " · 合成 \(renderCalls) 次其中 change≠0 \(changeNonZeroCalls) 次"
+             + "（最近 change=\(lastChangeValue)）"
     }
 
     private static func log(_ message: String) {

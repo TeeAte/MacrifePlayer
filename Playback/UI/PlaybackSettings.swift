@@ -192,6 +192,37 @@ enum CaptureColorMatrix: String, CaseIterable {
     }
 }
 
+/// HDR 转 SDR 色调映射模式（对标 mpv / libplacebo / ITU-R BT.2446）
+enum HDRToneMappingMode: String, CaseIterable {
+    case auto
+    case aces
+    case hable
+    case bt2446a
+    case reinhard
+    case off
+
+    var title: String {
+        switch self {
+        case .auto:     return "自动 (推荐 · ACES 电影胶片)"
+        case .aces:     return "ACES Filmic (胶片色彩 · 高动态范围)"
+        case .hable:    return "Hable (神秘海域2 · 柔和高光压缩)"
+        case .bt2446a:  return "ITU-R BT.2446a (广电标准 · 亮度保真)"
+        case .reinhard: return "Reinhard (经典全局摄影)"
+        case .off:      return "关闭 (原生 HDR 直通)"
+        }
+    }
+
+    var operatorCode: UInt32 {
+        switch self {
+        case .auto, .aces: return 0
+        case .hable:       return 1
+        case .bt2446a:     return 2
+        case .reinhard:    return 3
+        case .off:         return 0
+        }
+    }
+}
+
 enum RIFEModelChoice: String, CaseIterable {
     case lite425
     case full425
@@ -379,6 +410,9 @@ final class PlaybackSettings {
         case captureColorRange = "macrife.captureColorRange"
         case captureColorMatrix = "macrife.captureColorMatrix"
 
+        // HDR 色彩管理与色调映射 (HDR to SDR Tone Mapping)
+        case hdrToneMapping = "macrife.hdrToneMapping"
+
         /// 这项设置是否影响**管线本身**（解码器 / 推理链 / 渲染链）。
         var affectsPipeline: Bool {
             switch self {
@@ -393,8 +427,8 @@ final class PlaybackSettings {
                  .metalFX, .anime4k, .anime4kPresetID, .anime4kSharpness, .anime4kDenoise, .decodeMode:
                 return true
             case .rifeRateMode, .volume, .recentFiles,
-                 // 色彩范围 / 矩阵每帧在渲染前读取即可生效，不需要重建管线
-                 .captureColorRange, .captureColorMatrix:
+                 // 色彩范围 / 矩阵 / HDR色调映射每帧在渲染前读取即可生效，不需要重建管线
+                 .captureColorRange, .captureColorMatrix, .hdrToneMapping:
                 return false
             }
         }
@@ -469,6 +503,8 @@ final class PlaybackSettings {
                 return MPText.t("采集色彩范围", "Capture color range")
             case .captureColorMatrix:
                 return MPText.t("采集色彩矩阵", "Capture color matrix")
+            case .hdrToneMapping:
+                return MPText.t("HDR 色调映射", "HDR tone mapping")
             }
         }
     }
@@ -716,6 +752,12 @@ final class PlaybackSettings {
     var captureColorMatrix: CaptureColorMatrix {
         get { enumValue(Key.captureColorMatrix, default: .auto) }
         set { setEnum(Key.captureColorMatrix, newValue) }
+    }
+
+    /// HDR 转 SDR 色调映射模式（默认自动开启 ACES Filmic）
+    var hdrToneMapping: HDRToneMappingMode {
+        get { enumValue(Key.hdrToneMapping, default: .auto) }
+        set { setEnum(Key.hdrToneMapping, newValue) }
     }
 
     /// 重置所有 RIFE 补帧参数为推荐默认值

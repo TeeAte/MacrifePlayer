@@ -1,0 +1,149 @@
+{
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEFrameReader.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameReader.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameReader.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameReader.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameReader.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameReader.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEFrameSimilarityDetector.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameSimilarityDetector.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameSimilarityDetector.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameSimilarityDetector.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameSimilarityDetector.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEFrameSimilarityDetector.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyEngine.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyEngine.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyEngine.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyEngine.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyEngine.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyEngine.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyHalfTensor.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyHalfTensor.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyHalfTensor.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyHalfTensor.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyHalfTensor.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyHalfTensor.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyMetal.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyMetal.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyMetal.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyMetal.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyMetal.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyMetal.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyNV12Kernels.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyNV12Kernels.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyNV12Kernels.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyNV12Kernels.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyNV12Kernels.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyNV12Kernels.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyTensor.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensor.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensor.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensor.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensor.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensor.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyTensorBufferPool.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensorBufferPool.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensorBufferPool.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensorBufferPool.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensorBufferPool.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyTensorBufferPool.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEHeavyWorkerWorkspace.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyWorkerWorkspace.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyWorkerWorkspace.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyWorkerWorkspace.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyWorkerWorkspace.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEHeavyWorkerWorkspace.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEModelProfile.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelProfile.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelProfile.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelProfile.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelProfile.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelProfile.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEModelVariant.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelVariant.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelVariant.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelVariant.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelVariant.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEModelVariant.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEMultiPairReorderBuffer.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEMultiPairReorderBuffer.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEMultiPairReorderBuffer.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEMultiPairReorderBuffer.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEMultiPairReorderBuffer.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEMultiPairReorderBuffer.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFENV12Kernels.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFENV12Kernels.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFENV12Kernels.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFENV12Kernels.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFENV12Kernels.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFENV12Kernels.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEOutputReorderBuffer.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEOutputReorderBuffer.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEOutputReorderBuffer.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEOutputReorderBuffer.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEOutputReorderBuffer.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEOutputReorderBuffer.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEPerformanceMonitor.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPerformanceMonitor.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPerformanceMonitor.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPerformanceMonitor.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPerformanceMonitor.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPerformanceMonitor.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEPlaybackStats.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPlaybackStats.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPlaybackStats.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPlaybackStats.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPlaybackStats.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEPlaybackStats.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEReorderBuffer.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEReorderBuffer.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEReorderBuffer.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEReorderBuffer.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEReorderBuffer.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEReorderBuffer.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEScheduledFrameKind.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEScheduledFrameKind.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEScheduledFrameKind.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEScheduledFrameKind.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEScheduledFrameKind.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEScheduledFrameKind.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFETensorUpscaler.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFETensorUpscaler.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFETensorUpscaler.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFETensorUpscaler.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFETensorUpscaler.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFETensorUpscaler.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEVideoFrame.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEVideoFrame.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEVideoFrame.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEVideoFrame.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEVideoFrame.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEVideoFrame.swiftdeps"
+  },
+  "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/MacrifePlayer/RIFE/RIFEWorkerWorkspace.swift" : {
+    "const-values" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEWorkerWorkspace.swiftconstvalues",
+    "dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEWorkerWorkspace.d",
+    "diagnostics" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEWorkerWorkspace.dia",
+    "object" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEWorkerWorkspace.o",
+    "swift-dependencies" : "/Users/teeate/Dev/MetalPlayer/MacrifePlayer/build/MacrifePlayer.build/Debug/MacrifePlayer.build/Objects-normal/arm64/RIFEWorkerWorkspace.swiftdeps"
+  }
+}

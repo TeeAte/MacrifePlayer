@@ -73,6 +73,59 @@ enum VideoShaderLibrary {
         return out;
     }
 
+    // 逆 EOTF 与色调映射（用于直通上屏渲染未经前置转换的 HDR 帧）
+    static inline float3 eotf_pq(float3 v) {
+        constexpr float m1 = 2610.0f / 16384.0f;
+        constexpr float m2 = (2523.0f / 4096.0f) * 128.0f;
+        constexpr float c1 = 3424.0f / 4096.0f;
+        constexpr float c2 = (2413.0f / 4096.0f) * 32.0f;
+        constexpr float c3 = (2392.0f / 4096.0f) * 32.0f;
+        float3 vp = pow(max(v, 0.0f), float3(1.0f / m2));
+        float3 num = max(vp - c1, 0.0f);
+        float3 den = max(c2 - c3 * vp, 1e-6f);
+        return pow(num / den, float3(1.0f / m1)) * 10000.0f;
+    }
+
+    static inline float3 eotf_hlg(float3 v) {
+        constexpr float a = 0.17883277f;
+        constexpr float b = 0.28466892f;
+        constexpr float c = 0.55991073f;
+        float3 lin;
+        for (int i = 0; i < 3; i++) {
+            float x = max(v[i], 0.0f);
+            lin[i] = (x <= 0.5f) ? ((x * x) / 3.0f) : ((exp((x - c) / a) + b) / 12.0f);
+        }
+        return lin * 1000.0f;
+    }
+
+    static inline float3 bt2020_to_bt709(float3 c) {
+        float3x3 m = float3x3(
+            float3( 1.6605f, -0.1246f, -0.0182f),
+            float3(-0.5876f,  1.1329f, -0.1006f),
+            float3(-0.0728f, -0.0083f,  1.1187f)
+        );
+        return max(m * c, 0.0f);
+    }
+
+    static inline float3 tone_map_aces(float3 rgb) {
+        float3 x = (rgb / 100.0f);
+        constexpr float a = 2.51f;
+        constexpr float b = 0.03f;
+        constexpr float c = 2.43f;
+        constexpr float d = 0.59f;
+        constexpr float e = 0.14f;
+        return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+    }
+
+    static inline float3 linear_to_srgb(float3 rgb) {
+        float3 out;
+        for (int i = 0; i < 3; i++) {
+            float c = saturate(rgb[i]);
+            out[i] = (c <= 0.0031308f) ? (12.92f * c) : (1.055f * pow(c, 1.0f / 2.4f) - 0.055f);
+        }
+        return out;
+    }
+
     // YCbCr → RGB。两个片段着色器共用这一处，保证「双平面 NV12」与
     // 「打包 4:2:2」两条路径的色彩处理逐字一致 —— 复制两份迟早会漂移。
     static inline float3 ycbcr_to_rgb(float y, float cb, float cr, constant float4 &params)
@@ -94,6 +147,12 @@ enum VideoShaderLibrary {
             rgb.r = y + 1.4746 * cr;
             rgb.g = y - 0.16455 * cb - 0.5714 * cr;
             rgb.b = y + 1.8814 * cb;
+            // 若 params.w > 0.5 (表示片源带有 PQ 或 HLG HDR 传输特性标记，且直通上屏渲染)
+            if (params.w > 0.5) {
+                float3 linearNits = (params.w > 1.5) ? eotf_hlg(max(rgb, 0.0f)) : eotf_pq(max(rgb, 0.0f));
+                float3 rgb709 = bt2020_to_bt709(linearNits);
+                return saturate(linear_to_srgb(tone_map_aces(rgb709)));
+            }
         } else if (params.x > 0.5) {
             // BT.709
             rgb.r = y + 1.5748 * cr;

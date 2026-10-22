@@ -475,16 +475,31 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
         }
 
         guard let texture = overlayTexture, !bitmap.pixels.isEmpty else { return }
-        let region = MTLRegionMake2D(0, 0, bitmap.width, bitmap.height)
-        bitmap.pixels.withUnsafeBytes { ptr in
-            guard let base = ptr.baseAddress else { return }
-            texture.replace(region: region,
-                            mipmapLevel: 0,
-                            withBytes: base,
-                            bytesPerRow: bitmap.width * 4)
+
+        // ┌ 只上传**脏区**，不再整幅 replace
+        // │
+        // │ 整幅上传的代价：4K 3584×2160×4 = 29.5MB/次，`.managed` 存储还要
+        // │ 在 commit 时整块搬进显存。而字幕实际只动画面底部那几行 ——
+        // │ 按脏区传，绝大多数情况下是几十 KB 量级。
+        // │
+        // │ 行的起点用 `bitmap.width * 4` 做步长：脏区是整幅缓冲里的一块子矩形，
+        // │ 行与行之间仍然隔着整幅的宽度，所以不能按脏区宽度算 bytesPerRow。
+        // └
+        let dirty = bitmap.dirty.clamped(width: bitmap.width, height: bitmap.height)
+        if !dirty.isEmpty {
+            let region = MTLRegionMake2D(dirty.x, dirty.y, dirty.width, dirty.height)
+            let offset = (dirty.y * bitmap.width + dirty.x) * 4
+            bitmap.pixels.withUnsafeBytes { ptr in
+                guard let base = ptr.baseAddress else { return }
+                texture.replace(region: region,
+                                mipmapLevel: 0,
+                                withBytes: base.advanced(by: offset),
+                                bytesPerRow: bitmap.width * 4)
+            }
         }
-        lastSubtitleStats = String(format: "%dx%d · 叠图 %d 张",
-                                   bitmap.width, bitmap.height, bitmap.imageCount)
+        lastSubtitleStats = String(format: "%dx%d · 叠图 %d 张 · 脏区 %@",
+                                   bitmap.width, bitmap.height, bitmap.imageCount,
+                                   dirty.debugText)
     }
 
     // MARK: - 视频上传
@@ -572,7 +587,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
         packedTexture = nil
         isPacked422 = false
         heldPixelBuffer = pixelBuffer
-        colorParams = SIMD4<Float>(Float(frame.colorSpaceCode), frame.isFullRange ? 1.0 : 0.0, 0, 0)
+        colorParams = SIMD4<Float>(Float(frame.colorSpaceCode), frame.isFullRange ? 1.0 : 0.0, 0, Float(frame.transferFunction.rawValue))
         hasFrame = true
     }
 

@@ -158,15 +158,35 @@ final class RifeReorderBuffer {
     /// 看门狗：正常情况下每个已提交的 seq 必有结果落位（worker 即使失败也
     /// 返回占位结果）。等超过 3 秒说明流水线内部出了缺陷（作业丢失/线程异常），
     /// 与其永久卡死播放，不如跳过该 seq 自愈并记日志。
+    ///
+    /// ⚠️ 但「上游断流」不是缺陷，不能当缺陷处理 —— 这是踩过的坑：
+    /// 解码侧一断供（比如解封装线程被音频包队列卡住），调度线程就暂时没有新的
+    /// seq 提交。此时 `nextSeq == submitted + 1`，items[nextSeq] 当然永远为 nil。
+    /// 旧代码不区分这两种情况，照样 3 秒一跳，于是 nextSeq 越过了 submitted 之后
+    /// 再也不回头：
+    ///   · 出口线程再也取不到任何结果（画面彻底冻死，时钟照走、上屏不动）；
+    ///   · 更要命的是 push() 里 `guard seq >= nextSeq` 会把之后所有正常结果
+    ///     全部丢弃 —— 即使上游恢复，画面也永远回不来。
+    /// 实测就是这么从「偶发一次 3 秒卡顿」变成「永久黑屏」的。
+    /// 所以：只跳过**确实提交过**的 seq；跳过后把窗口收回 submitted + 1。
     func next() -> (gen: Int, frames: [DecodedVideoFrame])? {
         cond.lock()
         defer { cond.unlock() }
         var waited: TimeInterval = 0
         while items[nextSeq] == nil && !closed {
+            // 还没提交到这个序：在上游断流，等就是了，绝不能跳。
+            if nextSeq > submitted {
+                waited = 0
+                cond.wait(until: Date().addingTimeInterval(0.5))
+                continue
+            }
             if waited > 3.0 {
                 NSLog("[RIFE60] 看门狗：seq %d 超时未完成，强制跳过（累计 %.1fs）",
                       nextSeq, waited)
                 nextSeq += 1
+                // 自愈：窗口不能越过「已提交」上界，否则后续结果会被 push 丢弃。
+                // 迟到的结果仍会被 push 的 guard 拒收（那个 seq 已经记账消费过）。
+                if nextSeq > submitted + 1 { nextSeq = submitted + 1 }
                 waited = 0
                 cond.broadcast()
                 continue

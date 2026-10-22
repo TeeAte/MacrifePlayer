@@ -37,6 +37,29 @@ final class AVSyncClock {
 
     var isRunning: Bool { running }
 
+    /// 未夹取的音频时钟（可能跑到 scheduledAudioEnd 之外 = 已经断供）。
+    ///
+    /// 单独暴露出来只为一件事：给音频限流器用。
+    /// `currentTime()` 会把音频时钟**夹到** scheduledAudioEnd 上（underrun 时画面要等声音），
+    /// 这就带来一个致命的副作用 —— 一旦音频钟越过排队上界，`currentTime() == scheduledAudioEnd`
+    /// 恒成立，「超前量 = scheduledAudioEnd - currentTime()」就恒等于 0，限流器会误判
+    /// 「完全没有超前」而无限解码。实测后果：音频包队列被灌到 600 满，解封装线程卡在
+    /// 音频队列上再也读不出视频包 → 画面冻死、补帧看门狗连跳。
+    func rawAudioTime() -> Double? {
+        guard running, hasAudio, let provider = audioTimeProvider else { return nil }
+        return provider()
+    }
+
+    /// 已排队音频比「正在听到的位置」超前多少秒（限流专用，不夹取）。
+    func scheduledLead() -> Double {
+        scheduledAudioEnd - (rawAudioTime() ?? lastTime)
+    }
+
+    /// 现在到了切换音轨、需要重排音频锚点的时机。
+    func setScheduledEnd(_ t: Double) {
+        scheduledAudioEnd = t
+    }
+
     /// 当前媒体时间（秒）。
     func currentTime() -> Double {
         guard running else { return lastTime }

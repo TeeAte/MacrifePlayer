@@ -13,6 +13,13 @@
 import Foundation
 import CoreVideo
 
+/// 视频色彩传输特性 (Transfer Function)
+enum VideoTransferFunction: Int32 {
+    case sdr = 0     // BT.709 / sRGB / gamma
+    case pq = 1      // SMPTE ST 2084 (HDR10)
+    case hlg = 2     // ARIB STD-B67 (HLG)
+}
+
 /// 一张可以直接上屏的画面。
 ///
 /// 刻意放在 `#if USE_FFMPEG` **之外**：渲染层与 UI 只吃这个值类型，
@@ -31,6 +38,40 @@ struct DecodedVideoFrame {
     var isFullRange: Bool = false
     /// 是否为 RIFE 补帧生成的插值帧
     var isInterpolated: Bool = false
+    /// 传输特性：0 = SDR, 1 = SMPTE ST 2084 (PQ), 2 = ARIB STD-B67 (HLG)
+    var transferFunction: VideoTransferFunction = .sdr
+    /// 目标最大亮度 (nits)，默认 1000.0 (HDR10 标准基准)
+    var peakNits: Float = 1000.0
+
+    /// 是否为 10-bit 像素格式 (P010)
+    var is10Bit: Bool {
+        let fmt = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        return fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+               fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+    }
+
+    /// 是否为 HDR 视频帧（PQ 或 HLG，或 10-bit BT.2020）
+    var isHDR: Bool {
+        return transferFunction == .pq || transferFunction == .hlg || (colorSpaceCode == 2 && is10Bit)
+    }
+
+    init(pixelBuffer: CVPixelBuffer,
+         pts: Double,
+         isBT709: Bool = true,
+         colorSpaceCode: Int32 = 1,
+         isFullRange: Bool = false,
+         isInterpolated: Bool = false,
+         transferFunction: VideoTransferFunction = .sdr,
+         peakNits: Float = 1000.0) {
+        self.pixelBuffer = pixelBuffer
+        self.pts = pts
+        self.isBT709 = isBT709
+        self.colorSpaceCode = colorSpaceCode
+        self.isFullRange = isFullRange
+        self.isInterpolated = isInterpolated
+        self.transferFunction = transferFunction
+        self.peakNits = peakNits
+    }
 }
 
 #if USE_FFMPEG
@@ -188,6 +229,8 @@ final class VideoDecoder {
                                                timeBase)
                 let (csCode, is709) = Self.resolveColorSpace(fr)
                 let fullRange = Self.resolveFullRange(fr, pixelBuffer: pb)
+                let transferFunc = Self.resolveTransferFunction(fr, pixelBuffer: pb)
+                let peakNits = Self.resolvePeakNits(fr)
 
                 // 检测是否为隔行扫描视频帧 (1080 50i / 60i)
                 let frInterlaced = (fr.pointee.flags & (1 << 3) != 0) || (fr.pointee.interlaced_frame != 0)
@@ -215,18 +258,24 @@ final class VideoDecoder {
                                                  pts: pts,
                                                  isBT709: is709,
                                                  colorSpaceCode: csCode,
-                                                 isFullRange: fullRange))
+                                                 isFullRange: fullRange,
+                                                 transferFunction: transferFunc,
+                                                 peakNits: peakNits))
                     out.append(DecodedVideoFrame(pixelBuffer: f1,
                                                  pts: pts + delta,
                                                  isBT709: is709,
                                                  colorSpaceCode: csCode,
-                                                 isFullRange: fullRange))
+                                                 isFullRange: fullRange,
+                                                 transferFunction: transferFunc,
+                                                 peakNits: peakNits))
                 } else {
                     out.append(DecodedVideoFrame(pixelBuffer: pb,
                                                  pts: pts,
                                                  isBT709: is709,
                                                  colorSpaceCode: csCode,
-                                                 isFullRange: fullRange))
+                                                 isFullRange: fullRange,
+                                                 transferFunction: transferFunc,
+                                                 peakNits: peakNits))
                 }
             }
             av_frame_unref(fr)
@@ -244,6 +293,61 @@ final class VideoDecoder {
             let is709 = fr.pointee.height >= 720
             return (is709 ? 1 : 0, is709)
         }
+    }
+
+    /// 解析传输特性：0 = SDR, 1 = SMPTE ST 2084 (PQ), 2 = ARIB STD-B67 (HLG)
+    private static func resolveTransferFunction(_ fr: UnsafeMutablePointer<AVFrame>, pixelBuffer: CVPixelBuffer?) -> VideoTransferFunction {
+        let trc = fr.pointee.color_trc.rawValue
+        if trc == 16 /* AVCOL_TRC_SMPTE2084 */ {
+            return .pq
+        }
+        if trc == 18 /* AVCOL_TRC_ARIB_STD_B67 */ {
+            return .hlg
+        }
+        if let pb = pixelBuffer {
+            if let unmanaged = CVBufferGetAttachment(pb, kCVImageBufferTransferFunctionKey, nil) {
+                let trcObj = unmanaged.takeUnretainedValue()
+                if CFGetTypeID(trcObj) == CFStringGetTypeID() {
+                    let str = trcObj as! CFString
+                    if CFStringCompare(str, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ, []) == .compareEqualTo {
+                        return .pq
+                    }
+                    if CFStringCompare(str, kCVImageBufferTransferFunction_ITU_R_2100_HLG, []) == .compareEqualTo {
+                        return .hlg
+                    }
+                }
+            }
+            let fmt = CVPixelBufferGetPixelFormatType(pb)
+            let is10Bit = (fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                           fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+            let cs = fr.pointee.colorspace.rawValue
+            if is10Bit && (cs == 9 || cs == 10) {
+                return .pq
+            }
+        }
+        return .sdr
+    }
+
+    /// 解析片源最高亮度元数据 (MaxCLL / Mastering Display Peak Luminance)
+    private static func resolvePeakNits(_ fr: UnsafeMutablePointer<AVFrame>) -> Float {
+        if let sideData = av_frame_get_side_data(fr, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL),
+           let ptr = sideData.pointee.data {
+            let cll = ptr.withMemoryRebound(to: AVContentLightMetadata.self, capacity: 1) { $0.pointee }
+            if cll.MaxCLL > 0 {
+                return Float(cll.MaxCLL)
+            }
+        }
+        if let sideData = av_frame_get_side_data(fr, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA),
+           let ptr = sideData.pointee.data {
+            let mdm = ptr.withMemoryRebound(to: AVMasteringDisplayMetadata.self, capacity: 1) { $0.pointee }
+            if mdm.has_luminance != 0 {
+                let maxLum = Double(mdm.max_luminance.num) / max(Double(mdm.max_luminance.den), 1.0)
+                if maxLum > 0 {
+                    return Float(maxLum)
+                }
+            }
+        }
+        return 1000.0
     }
 
     /// 判断是否全范围（0-255）

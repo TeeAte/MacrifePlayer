@@ -311,28 +311,54 @@ final class FLAVRInterpolationEngine {
         let stride0 = CVPixelBufferGetBytesPerRowOfPlane(b0, 0) != 0 ? CVPixelBufferGetBytesPerRowOfPlane(b0, 0) : CVPixelBufferGetBytesPerRow(b0)
         let stride1 = CVPixelBufferGetBytesPerRowOfPlane(b1, 0) != 0 ? CVPixelBufferGetBytesPerRowOfPlane(b1, 0) : CVPixelBufferGetBytesPerRow(b1)
 
+        let fmt = CVPixelBufferGetPixelFormatType(b0)
+        let is10Bit = (fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                       fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+
         let stepX = max(1, w >> 6)
         let stepY = max(1, h >> 6)
 
         var diffSum: Double = 0.0
         var sampleCount: Double = 0.0
 
-        let uptr0 = ptr0.assumingMemoryBound(to: UInt8.self)
-        let uptr1 = ptr1.assumingMemoryBound(to: UInt8.self)
+        if is10Bit {
+            let uptr0 = ptr0.assumingMemoryBound(to: UInt16.self)
+            let uptr1 = ptr1.assumingMemoryBound(to: UInt16.self)
+            let wordStride0 = stride0 / 2
+            let wordStride1 = stride1 / 2
 
-        var y = 0
-        while y < h {
-            let row0 = uptr0.advanced(by: y * stride0)
-            let row1 = uptr1.advanced(by: y * stride1)
-            var x = 0
-            while x < w {
-                let v0 = Double(row0[x])
-                let v1 = Double(row1[x])
-                diffSum += abs(v0 - v1)
-                sampleCount += 1.0
-                x += stepX
+            var y = 0
+            while y < h {
+                let row0 = uptr0.advanced(by: y * wordStride0)
+                let row1 = uptr1.advanced(by: y * wordStride1)
+                var x = 0
+                while x < w {
+                    let v0 = Double(row0[x] >> 2)
+                    let v1 = Double(row1[x] >> 2)
+                    diffSum += abs(v0 - v1)
+                    sampleCount += 1.0
+                    x += stepX
+                }
+                y += stepY
             }
-            y += stepY
+        } else {
+            let uptr0 = ptr0.assumingMemoryBound(to: UInt8.self)
+            let uptr1 = ptr1.assumingMemoryBound(to: UInt8.self)
+
+            var y = 0
+            while y < h {
+                let row0 = uptr0.advanced(by: y * stride0)
+                let row1 = uptr1.advanced(by: y * stride1)
+                var x = 0
+                while x < w {
+                    let v0 = Double(row0[x])
+                    let v1 = Double(row1[x])
+                    diffSum += abs(v0 - v1)
+                    sampleCount += 1.0
+                    x += stepX
+                }
+                y += stepY
+            }
         }
 
         guard sampleCount > 0 else { return false }
@@ -387,9 +413,11 @@ final class FLAVRInterpolationEngine {
 
         let width = CVPixelBufferGetWidth(incoming.pixelBuffer)
         let height = CVPixelBufferGetHeight(incoming.pixelBuffer)
-        ensurePixelBufferPool(width: width, height: height)
+        let is10Bit = (CVPixelBufferGetPixelFormatType(incoming.pixelBuffer) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                       CVPixelBufferGetPixelFormatType(incoming.pixelBuffer) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+        ensurePixelBufferPool(width: width, height: height, is10Bit: is10Bit)
 
-        let isSimilar = areFramesSimilar(f0.pixelBuffer, f1.pixelBuffer)
+        let isSimilar = settings.rifeStaticFrameSkip && areFramesSimilar(f0.pixelBuffer, f1.pixelBuffer)
 
         var isCut = false
         let currentLuma = sampleDownscaledLuma(from: incoming.pixelBuffer)
@@ -453,7 +481,9 @@ final class FLAVRInterpolationEngine {
                         isBT709: incoming.isBT709,
                         colorSpaceCode: incoming.colorSpaceCode,
                         isFullRange: incoming.isFullRange,
-                        isInterpolated: (alpha >= 0.04 && alpha <= 0.96)
+                        isInterpolated: (alpha >= 0.04 && alpha <= 0.96),
+                        transferFunction: incoming.transferFunction,
+                        peakNits: incoming.peakNits
                     )
                     result.append(outFrame)
                     totalInterpolatedFrames += 1
@@ -484,7 +514,9 @@ final class FLAVRInterpolationEngine {
                         isBT709: incoming.isBT709,
                         colorSpaceCode: incoming.colorSpaceCode,
                         isFullRange: incoming.isFullRange,
-                        isInterpolated: true
+                        isInterpolated: true,
+                        transferFunction: incoming.transferFunction,
+                        peakNits: incoming.peakNits
                     )
                     result.append(interpolatedFrame)
                     totalInterpolatedFrames += 1
@@ -526,12 +558,19 @@ final class FLAVRInterpolationEngine {
         let rc = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &dstBuffer)
         guard rc == kCVReturnSuccess, let dst = dstBuffer else { return nil }
 
-        guard let src0Y = makeTexture(from: frame0, plane: 0, pixelFormat: .r8Unorm, width: width, height: height, cache: cache),
-              let src0UV = makeTexture(from: frame0, plane: 1, pixelFormat: .rg8Unorm, width: width / 2, height: height / 2, cache: cache),
-              let src1Y = makeTexture(from: frame1, plane: 0, pixelFormat: .r8Unorm, width: width, height: height, cache: cache),
-              let src1UV = makeTexture(from: frame1, plane: 1, pixelFormat: .rg8Unorm, width: width / 2, height: height / 2, cache: cache),
-              let dstY = makeTexture(from: dst, plane: 0, pixelFormat: .r8Unorm, width: width, height: height, cache: cache),
-              let dstUV = makeTexture(from: dst, plane: 1, pixelFormat: .rg8Unorm, width: width / 2, height: height / 2, cache: cache) else {
+        let is0_10Bit = (CVPixelBufferGetPixelFormatType(frame0) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                         CVPixelBufferGetPixelFormatType(frame0) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+        let is1_10Bit = (CVPixelBufferGetPixelFormatType(frame1) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                         CVPixelBufferGetPixelFormatType(frame1) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+        let isDst10Bit = (CVPixelBufferGetPixelFormatType(dst) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                          CVPixelBufferGetPixelFormatType(dst) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+
+        guard let src0Y = makeTexture(from: frame0, plane: 0, pixelFormat: is0_10Bit ? .r16Unorm : .r8Unorm, width: width, height: height, cache: cache),
+              let src0UV = makeTexture(from: frame0, plane: 1, pixelFormat: is0_10Bit ? .rg16Unorm : .rg8Unorm, width: width / 2, height: height / 2, cache: cache),
+              let src1Y = makeTexture(from: frame1, plane: 0, pixelFormat: is1_10Bit ? .r16Unorm : .r8Unorm, width: width, height: height, cache: cache),
+              let src1UV = makeTexture(from: frame1, plane: 1, pixelFormat: is1_10Bit ? .rg16Unorm : .rg8Unorm, width: width / 2, height: height / 2, cache: cache),
+              let dstY = makeTexture(from: dst, plane: 0, pixelFormat: isDst10Bit ? .r16Unorm : .r8Unorm, width: width, height: height, cache: cache),
+              let dstUV = makeTexture(from: dst, plane: 1, pixelFormat: isDst10Bit ? .rg16Unorm : .rg8Unorm, width: width / 2, height: height / 2, cache: cache) else {
             return nil
         }
 
@@ -685,18 +724,22 @@ final class FLAVRInterpolationEngine {
         return outBuffer
     }
 
-    private func ensurePixelBufferPool(width: Int, height: Int) {
-        if pixelBufferPool != nil && poolWidth == width && poolHeight == height {
+    private var poolIs10Bit = false
+
+    private func ensurePixelBufferPool(width: Int, height: Int, is10Bit: Bool) {
+        if pixelBufferPool != nil && poolWidth == width && poolHeight == height && poolIs10Bit == is10Bit {
             return
         }
 
         poolWidth = width
         poolHeight = height
+        poolIs10Bit = is10Bit
         let poolAttrs: [CFString: Any] = [
             kCVPixelBufferPoolMinimumBufferCountKey: 32
         ]
+        let formatType = is10Bit ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         let pbAttrs: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelBufferPixelFormatTypeKey: formatType,
             kCVPixelBufferWidthKey: width,
             kCVPixelBufferHeightKey: height,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
@@ -718,7 +761,6 @@ final class FLAVRInterpolationEngine {
         let w = CVPixelBufferGetWidth(pb)
         let h = CVPixelBufferGetHeight(pb)
         let bpr = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
-        let ptr = yBase.assumingMemoryBound(to: UInt8.self)
 
         let cols = 32
         let rows = 18
@@ -727,13 +769,32 @@ final class FLAVRInterpolationEngine {
         let dy = max(1, h / rows)
 
         var idx = 0
-        for r in 0..<rows {
-            let y = min(h - 1, r * dy)
-            let rowOffset = y * bpr
-            for c in 0..<cols {
-                let x = min(w - 1, c * dx)
-                samples[idx] = ptr[rowOffset + x]
-                idx += 1
+        let fmt = CVPixelBufferGetPixelFormatType(pb)
+        let is10Bit = (fmt == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
+                       fmt == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+
+        if is10Bit {
+            let ptr = yBase.assumingMemoryBound(to: UInt16.self)
+            let wordBpr = bpr / 2
+            for r in 0..<rows {
+                let y = min(h - 1, r * dy)
+                let rowOffset = y * wordBpr
+                for c in 0..<cols {
+                    let x = min(w - 1, c * dx)
+                    samples[idx] = UInt8((ptr[rowOffset + x] >> 2) & 0xFF)
+                    idx += 1
+                }
+            }
+        } else {
+            let ptr = yBase.assumingMemoryBound(to: UInt8.self)
+            for r in 0..<rows {
+                let y = min(h - 1, r * dy)
+                let rowOffset = y * bpr
+                for c in 0..<cols {
+                    let x = min(w - 1, c * dx)
+                    samples[idx] = ptr[rowOffset + x]
+                    idx += 1
+                }
             }
         }
         return samples
