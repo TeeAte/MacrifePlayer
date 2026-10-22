@@ -1,5 +1,31 @@
+# macOS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
+
+# Xcode
 build/
+DerivedData/
+*.moved-aside
+*.xcuserstate
+xcuserdata/
+**/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM/
+*.debug.dylib
+__preview.dylib
+*.xcscmblueprint
+
+# Old Xcode user settings
 *.pbxuser
 !default.pbxuser
 *.mode1v3
@@ -8,7 +34,12 @@ build/
 !default.mode2v3
 *.perspectivev3
 !default.perspectivev3
-xcuserdata/
-*.moved-aside
-DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# IDE
 .idea/
+.vscode/
+
