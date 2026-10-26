@@ -360,6 +360,15 @@ final class PipelineGate {
         condition.broadcast()
         condition.unlock()
     }
+
+    /// 强制取消冻结并唤醒所有等待者（用于管线销毁与重载）。
+    func cancel() {
+        condition.lock()
+        frozen = false
+        active = 0
+        condition.broadcast()
+        condition.unlock()
+    }
 }
 
 // MARK: - AVPacket 的 ARC 容器

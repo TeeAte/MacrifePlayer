@@ -384,6 +384,7 @@ final class PlaybackSettings {
         case decodeMode = "macrife.decodeMode"
         case volume = "macrife.volume"
         case recentFiles = "macrife.recentFiles"
+        case playbackProgress = "macrife.playbackProgress"
 
         // RIFE 专属定制
         case rifeFlowSmoothness = "macrife.rifeFlowSmoothness"
@@ -426,7 +427,7 @@ final class PlaybackSettings {
                  .deinterlaceMode, .fake60FPSOptimization, .captureLowLatencyMode,
                  .metalFX, .anime4k, .anime4kPresetID, .anime4kSharpness, .anime4kDenoise, .decodeMode:
                 return true
-            case .rifeRateMode, .volume, .recentFiles,
+            case .rifeRateMode, .volume, .recentFiles, .playbackProgress,
                  // 色彩范围 / 矩阵 / HDR色调映射每帧在渲染前读取即可生效，不需要重建管线
                  .captureColorRange, .captureColorMatrix, .hdrToneMapping:
                 return false
@@ -477,6 +478,8 @@ final class PlaybackSettings {
                 return MPText.t("音量", "Volume")
             case .recentFiles:
                 return MPText.t("最近打开", "Recent files")
+            case .playbackProgress:
+                return MPText.t("播放进度", "Playback progress")
             case .rifeFlowSmoothness:
                 return MPText.t("光流平滑度", "Flow smoothness")
             case .rifeLargeMotionAssist:
@@ -880,6 +883,24 @@ final class PlaybackSettings {
 
     func clearRecent() { recentFiles = [] }
 
+    // MARK: 播放进度 (Playback Progress)
+
+    func progress(for name: String) -> Double? {
+        PlaybackProgressManager.shared.progress(for: name)
+    }
+
+    func saveProgress(for name: String, time: Double, duration: Double) {
+        PlaybackProgressManager.shared.saveProgress(for: name, time: time, duration: duration)
+    }
+
+    func clearProgress(for name: String) {
+        PlaybackProgressManager.shared.clearProgress(for: name)
+    }
+
+    func clearAllProgress() {
+        PlaybackProgressManager.shared.clearAllProgress()
+    }
+
     // MARK: - 内部
 
     private func enumValue<T: RawRepresentable>(_ key: Key, default fallback: T) -> T
@@ -898,5 +919,142 @@ final class PlaybackSettings {
         NotificationCenter.default.post(name: .playbackSettingsDidChange,
                                         object: self,
                                         userInfo: ["key": key])
+    }
+}
+
+// MARK: - 影片播放进度管理器 (Playback Progress Manager)
+
+/// 记住影片播放进度管理器。
+///
+/// 存储位置探讨（针对 macOS 播放器）：
+/// 1. UserDefaults（~/Library/Preferences/<bundle-id>.plist）：
+///    - 本工程当前做法：轻量、无锁争用、系统统一通过 cfprefsd 异步写盘，重启后保留。
+///    - 采用字典结构 `[文件名: [字段: 值]]`，带上时间戳（updatedAt）。
+///    - 加容量上限保护（LRU 淘汰旧记录，最多保留 1000 部影片），保证永久不超几十 KB。
+/// 2. Application Support 目录（JSON 文件）：
+///    - 适合海量元数据；但纯记录「影片名 -> 进度秒数」偏重，增加目录与原子写文件逻辑。
+/// 3. Caches 目录：
+///    - 不推荐，系统或清理工具在磁盘紧缺时可能无预警清空。
+/// 4. 文件系统扩展属性（xattr）：
+///    - 在只读介质、NAS、网络共享盘或只读卷上会写入失败。
+///
+/// 综上：基于 UserDefaults + LRU 淘汰是 macOS 视频播放器实现该特性的最佳实践。
+final class PlaybackProgressManager {
+
+    static let shared = PlaybackProgressManager()
+
+    /// 最多保留多少部影片进度（防膨胀 LRU 淘汰）
+    static let maxHistoryLimit = 1000
+
+    /// 最小记录阈值（少于 5 秒视为刚打开，不记或从头开始）
+    static let minimumRecordThreshold: Double = 5.0
+
+    /// 片尾完成阈值（距离片尾不足 10 秒或播过 95%，视为看完，重置进度）
+    static let completedMargin: Double = 10.0
+    static let completedRatio: Double = 0.95
+
+    private let lock = NSLock()
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    /// 获取某影片的进度（以文件名/lastPathComponent 为 key）
+    func progress(for name: String) -> Double? {
+        guard !name.isEmpty else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let all = defaults.dictionary(forKey: PlaybackSettings.Key.playbackProgress.rawValue) as? [String: [String: Any]],
+              let dict = all[name] else {
+            return nil
+        }
+
+        let time = (dict["time"] as? NSNumber)?.doubleValue ?? (dict["time"] as? Double) ?? 0
+        let duration = (dict["duration"] as? NSNumber)?.doubleValue ?? (dict["duration"] as? Double) ?? 0
+
+        // 如果当时记录点已经接近片尾，或不足阈值，则视为无需恢复
+        if time < Self.minimumRecordThreshold { return nil }
+        if duration > 0 {
+            if time >= (duration - Self.completedMargin) || (time / duration) >= Self.completedRatio {
+                return nil
+            }
+        }
+        return time
+    }
+
+    /// 保存播放进度（如果快播完了或者刚开始，会自动清除）
+    func saveProgress(for name: String, time: Double, duration: Double) {
+        guard !name.isEmpty, time.isFinite, time >= 0 else { return }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        var all = defaults.dictionary(forKey: PlaybackSettings.Key.playbackProgress.rawValue) as? [String: [String: Any]] ?? [:]
+
+        // 1. 如果进度太短（< 5s），不记录；如果已存在则清除
+        if time < Self.minimumRecordThreshold {
+            if all.removeValue(forKey: name) != nil {
+                defaults.set(all, forKey: PlaybackSettings.Key.playbackProgress.rawValue)
+            }
+            return
+        }
+
+        // 2. 如果影片已经基本看完了（距离结尾 < 10s 或超过 95%），清除记录
+        if duration > 0 && (time >= (duration - Self.completedMargin) || (time / duration) >= Self.completedRatio) {
+            if all.removeValue(forKey: name) != nil {
+                defaults.set(all, forKey: PlaybackSettings.Key.playbackProgress.rawValue)
+            }
+            return
+        }
+
+        // 3. 正常写入
+        let record: [String: Any] = [
+            "time": time,
+            "duration": duration,
+            "updatedAt": Date().timeIntervalSinceReferenceDate
+        ]
+        all[name] = record
+
+        // 4. LRU 容量保护：超过上限时淘汰最旧的记录
+        if all.count > Self.maxHistoryLimit {
+            let sortedKeys = all.keys.sorted { k1, k2 in
+                let t1 = (all[k1]?["updatedAt"] as? NSNumber)?.doubleValue ?? (all[k1]?["updatedAt"] as? Double) ?? 0
+                let t2 = (all[k2]?["updatedAt"] as? NSNumber)?.doubleValue ?? (all[k2]?["updatedAt"] as? Double) ?? 0
+                return t1 > t2
+            }
+            let keepKeys = Set(sortedKeys.prefix(Self.maxHistoryLimit))
+            all = all.filter { keepKeys.contains($0.key) }
+        }
+
+        defaults.set(all, forKey: PlaybackSettings.Key.playbackProgress.rawValue)
+    }
+
+    /// 清除某部影片的进度
+    func clearProgress(for name: String) {
+        guard !name.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        var all = defaults.dictionary(forKey: PlaybackSettings.Key.playbackProgress.rawValue) as? [String: [String: Any]] ?? [:]
+        if all.removeValue(forKey: name) != nil {
+            defaults.set(all, forKey: PlaybackSettings.Key.playbackProgress.rawValue)
+        }
+    }
+
+    /// 清空所有影片进度
+    func clearAllProgress() {
+        lock.lock()
+        defer { lock.unlock() }
+        defaults.removeObject(forKey: PlaybackSettings.Key.playbackProgress.rawValue)
+    }
+
+    /// 把秒格式化成 mm:ss（超过一小时给 h:mm:ss）
+    static func formatTime(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "00:00" }
+        let total = Int(seconds.rounded(.down))
+        let s = total % 60, m = (total / 60) % 60, h = total / 3600
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s)
+                     : String(format: "%02d:%02d", m, s)
     }
 }

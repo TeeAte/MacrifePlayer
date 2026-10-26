@@ -58,6 +58,7 @@ final class PlayerContainerView: NSView {
     var onPlaylistDelete: ((Int) -> Void)?
     var onPlaylistMove: ((Int, Int) -> Void)?
     var onPlaylistAppend: (([URL]) -> Void)?
+    var onFileDrop: ((URL) -> Void)?
 
     var playlistPanelView: PlaylistPanelView { playlistPanel }
 
@@ -226,6 +227,10 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
 
     /// 是否显示信息条（开发期）。
     private let showsInfo = DevFlag.on("MP_TRACE", "--trace")
+
+    // MARK: 播放进度保存节流
+    private var lastProgressSaveTime: Double = 0
+    private var lastProgressSaveWallClock: TimeInterval = 0
 
     // MARK: - 构造
 
@@ -435,6 +440,11 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
             self, selector: #selector(settingsDidChange(_:)),
             name: .playbackSettingsDidChange, object: nil)
 
+        // 应用将要退出时保存当前播放进度
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleAppWillTerminate),
+            name: NSApplication.willTerminateNotification, object: nil)
+
         applyVolumeFromSettings()
         registerForDraggedTypes([.fileURL])
 
@@ -446,6 +456,10 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         NotificationCenter.default.removeObserver(self)
         removeTabMonitor()
         renderTickTimer?.invalidate()
+    }
+
+    @objc private func handleAppWillTerminate() {
+        saveCurrentProgressIfNeeded()
     }
 
     // MARK: - dev：无窗口环境下的「渲染取帧」驱动（MP_RENDER_TICK）
@@ -483,6 +497,7 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     var onPlaylistDelete: ((Int) -> Void)?
     var onPlaylistMove: ((Int, Int) -> Void)?
     var onPlaylistAppend: (([URL]) -> Void)?
+    var onFileDrop: ((URL) -> Void)?
 
     /// 反射池里的 `playlistPanelView` 在窗口控制器那侧；这里给一个只读入口。
     var playlistPanelView: PlaylistPanelView { playlistPanel }
@@ -704,13 +719,28 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     }
 
     func open(url: URL) {
-        showStatusPill("正在打开 \(url.lastPathComponent) …", autoHideDelay: nil)
+        saveCurrentProgressIfNeeded()
+        let isSwitchingMedia = (engine.url != nil)
+        if engine.isPlaying {
+            engine.pause()
+        }
+        isReloadingPipeline = false
+        showStatusPill(isSwitchingMedia ? "正在重载并切换视频 \(url.lastPathComponent) …" : "正在打开 \(url.lastPathComponent) …", autoHideDelay: nil)
         renderView.clearFrame()
+        overlay.setTime(current: 0, duration: 0)
+        overlay.setPlaying(false)
+        resetStatsSampling()
+        updateInfoLabel()
 
         mediaOpenQueue.async { [weak self] in
             guard let self else { return }
             do {
                 try self.engine.open(url: url)
+                let saved = PlaybackProgressManager.shared.progress(for: url.lastPathComponent)
+                let shouldResume = (saved != nil && saved! > 5.0 && (self.engine.duration <= 0 || saved! < self.engine.duration - 10.0))
+                if shouldResume, let resumeTime = saved {
+                    self.engine.seek(to: resumeTime)
+                }
                 DispatchQueue.main.async {
                     // ⚠️ noteRecent 必须在这里（主线程）调，不能在上面那行后面直接调。
                     //
@@ -725,7 +755,8 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
                     self.hideStatusPill()
                     self.overlay.setEnabled(true)
                     self.overlay.setPlaying(true)
-                    self.overlay.setTime(current: 0, duration: self.engine.duration)
+                    let currentPos = (shouldResume && saved != nil) ? saved! : 0
+                    self.overlay.setTime(current: currentPos, duration: self.engine.duration)
                     self.updateInfoLabel()
                     let s = PlaybackSettings.shared
                     self.renderView.updatePreferredFPS(for: s.rifeRateMode, sourceFPS: self.engine.detail.video?.frameRate ?? 24)
@@ -734,6 +765,12 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
                     self.applyVolumeFromSettings()
                     // 换源了：性能面板的采样历史作废，参数快照也换了新的
                     self.resetStatsSampling()
+                    if shouldResume, let resumeTime = saved {
+                        let timeStr = PlaybackProgressManager.formatTime(resumeTime)
+                        self.showStatusPill("已恢复上次播放进度 \(timeStr)", autoHideDelay: 2.5)
+                    } else if isSwitchingMedia {
+                        self.showStatusPill("已自动重载并切换到：\(url.lastPathComponent)", autoHideDelay: 2.0)
+                    }
                     // 原版打开后会自动让控制条淡出，把画面让出来
                     self.showOverlay()
                     self.scheduleHideOverlay(delay: self.overlayHideDelay,
@@ -784,6 +821,7 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     }
 
     func closeCurrent() {
+        saveCurrentProgressIfNeeded()
         engine.shutdown()
         renderView.clearFrame()
         overlay.setEnabled(false)
@@ -820,12 +858,30 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
 
     func seek(to seconds: Double) {
         guard engine.url != nil else { return }
-        engine.seek(to: seconds)
+        let target = max(0, min(engine.duration > 0 ? engine.duration : seconds, seconds))
+        engine.seek(to: target)
+        saveCurrentProgressIfNeeded(overrideTime: target)
     }
 
     func seekRelative(_ delta: Double) {
         guard engine.url != nil else { return }
-        engine.seek(to: max(0, min(engine.duration, engine.currentTime + delta)))
+        let target = max(0, min(engine.duration, engine.currentTime + delta))
+        seek(to: target)
+    }
+
+    // MARK: - 播放进度持久化
+
+    private func saveCurrentProgressIfNeeded(overrideTime: Double? = nil) {
+        guard let url = engine.url, !engine.isCaptureMode else { return }
+        if engine.state == .ended {
+            PlaybackProgressManager.shared.clearProgress(for: url.lastPathComponent)
+            return
+        }
+        let time = overrideTime ?? engine.currentTime
+        let duration = engine.duration
+        PlaybackProgressManager.shared.saveProgress(for: url.lastPathComponent, time: time, duration: duration)
+        lastProgressSaveTime = time
+        lastProgressSaveWallClock = Date().timeIntervalSinceReferenceDate
     }
 
     /// 重新载入当前视频并恢复进度（对应重载按钮与 Cmd+R）
@@ -855,8 +911,34 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     }
 
     func setVolume(_ v: Float) {
-        engine.volume = v
-        PlaybackSettings.shared.volume = v
+        let clamped = max(0, min(1, v))
+        engine.volume = clamped
+        PlaybackSettings.shared.volume = clamped
+    }
+
+    /// 增量调整音量（方向键上下、滚轮驱动），并弹出音量 HUD 提示
+    func adjustVolume(by delta: Float) {
+        let current = PlaybackSettings.shared.volume
+        let newVolume = max(0, min(1, current + delta))
+        setVolume(newVolume)
+        showVolumeStatusPill(newVolume)
+        showOverlay()
+        scheduleHideOverlay(delay: overlayHideDelay, hideCursorWhenDone: false)
+    }
+
+    private func showVolumeStatusPill(_ v: Float) {
+        let pct = Int(round(v * 100))
+        let icon: String
+        if pct <= 0 {
+            icon = "🔇"
+        } else if pct < 33 {
+            icon = "🔈"
+        } else if pct < 66 {
+            icon = "🔉"
+        } else {
+            icon = "🔊"
+        }
+        showStatusPill("\(icon) 音量: \(pct)%", autoHideDelay: 1.2)
     }
 
     private func applyVolumeFromSettings() {
@@ -1094,6 +1176,10 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
             seekRelative(-5)
         case 124:                   // →
             seekRelative(5)
+        case 125:                   // ↓ 方向键下：降低音量
+            adjustVolume(by: -0.05)
+        case 126:                   // ↑ 方向键上：增加音量
+            adjustVolume(by: 0.05)
         case 53:                    // esc
             window?.toggleFullScreen(nil)
         default:
@@ -1101,12 +1187,34 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         }
     }
 
-    // MARK: - Tab：性能监看面板
+    // MARK: - 滚轮与手势调整音量
 
-    /// Tab 键的本地事件监视器令牌（`deinit` 里要还回去，否则闭包长期持有 self）。
+    override func scrollWheel(with event: NSEvent) {
+        // 若鼠标在播放列表面板或性能监看面板内且处于显示状态，交由面板原生滚动
+        let mouseInView = convert(event.locationInWindow, from: nil)
+        if playlistPanel.isShown && playlistPanel.frame.contains(mouseInView) {
+            super.scrollWheel(with: event)
+            return
+        }
+        if statsPanel.isShown && statsPanel.frame.contains(mouseInView) {
+            super.scrollWheel(with: event)
+            return
+        }
+        // 滚轮调整音量：支持高精度触控板平滑滑动与传统带刻度鼠标滚轮
+        let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY
+        guard abs(deltaY) > 0.01 else { return }
+        let step: Float = event.hasPreciseScrollingDeltas
+            ? Float(deltaY) * 0.0025
+            : (deltaY > 0 ? 0.05 : -0.05)
+        adjustVolume(by: step)
+    }
+
+    // MARK: - Tab：性能监看面板与上下方向键监看
+
+    /// Tab 键与方向键的本地事件监视器令牌（`deinit` 里要还回去，否则闭包长期持有 self）。
     private var tabMonitor: Any?
 
-    /// 装 Tab 监视器。
+    /// 装 Tab 监视器与上下键音量监视器。
     ///
     /// 为什么不用 `keyDown(with:)`：见上面那段注释 —— NSWindow 先吃 Tab。
     /// 监视器在**事件分发之前**拦截，所以与「谁是 first responder」彻底无关。
@@ -1114,14 +1222,22 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     private func installTabMonitor() {
         tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            // 只认「本窗口的裸 Tab」。⌘/⌥/⌃ + Tab 是系统与菜单的快捷键（切窗口、
-            // 切标签页），抢掉会挨骂。
-            guard event.keyCode == 48,
-                  event.window === self.window,
+            // 只认「本窗口的裸按键」。⌘/⌥/⌃ 是系统与菜单的快捷键，抢掉会打架。
+            guard event.window === self.window,
                   event.modifierFlags.intersection([.command, .option, .control]).isEmpty
             else { return event }
-            self.toggleStatsPanel()
-            return nil
+
+            if event.keyCode == 48 { // Tab
+                self.toggleStatsPanel()
+                return nil
+            } else if event.keyCode == 126 { // ↑ 方向键上：增加音量
+                self.adjustVolume(by: 0.05)
+                return nil
+            } else if event.keyCode == 125 { // ↓ 方向键下：降低音量
+                self.adjustVolume(by: -0.05)
+                return nil
+            }
+            return event
         }
     }
 
@@ -1151,12 +1267,20 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
             loadExternalSubtitle(url: url)
             showStatusPill("已加载字幕: \(url.lastPathComponent)", autoHideDelay: 2.5)
         } else if Self.mediaExtensions.contains(ext) {
-            open(url: url)
+            if let onFileDrop {
+                onFileDrop(url)
+            } else {
+                open(url: url)
+            }
         } else if ext == "json" {
             // 丢进来一个播放列表文件 → 交给窗口控制器
             onPlaylistAppend?([url])
         } else {
-            open(url: url)      // 让 FFmpeg 去判，别用扩展名挡
+            if let onFileDrop {
+                onFileDrop(url)
+            } else {
+                open(url: url)      // 让 FFmpeg 去判，别用扩展名挡
+            }
         }
         return true
     }
@@ -1173,6 +1297,13 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     func playbackEngine(_ engine: PlaybackEngine, didChange state: PlaybackState) {
         overlay.setPlaying(engine.isPlaying)
         onPlaybackStateChanged?(engine.isPlaying)
+        if state == .paused {
+            saveCurrentProgressIfNeeded()
+        } else if state == .ended {
+            if let name = engine.url?.lastPathComponent {
+                PlaybackProgressManager.shared.clearProgress(for: name)
+            }
+        }
         if case .failed(let message) = state {
             showStatusPill(message, autoHideDelay: nil)
         }
@@ -1182,6 +1313,16 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     func playbackEngine(_ engine: PlaybackEngine, didUpdateTime time: Double, duration: Double) {
         overlay.setTime(current: time, duration: duration)
         updateInfoLabel()
+
+        // 节流写入播放进度：播放中每 3 秒且时间前进超 1 秒更新一次
+        let now = Date().timeIntervalSinceReferenceDate
+        if now - lastProgressSaveWallClock >= 3.0 && abs(time - lastProgressSaveTime) >= 1.0 {
+            if let name = engine.url?.lastPathComponent, !engine.isCaptureMode, engine.state == .playing {
+                PlaybackProgressManager.shared.saveProgress(for: name, time: time, duration: duration)
+                lastProgressSaveTime = time
+                lastProgressSaveWallClock = now
+            }
+        }
     }
 
     // MARK: - 信息条（dev only）

@@ -106,6 +106,9 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         container.onPlaylistAppend = { [weak self] urls in
             self?.appendVideosToPlaylist(urls)
         }
+        container.onFileDrop = { [weak self] url in
+            self?.openVideo(url)
+        }
 
         pushPlaylistToContainer()
     }

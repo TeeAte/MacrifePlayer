@@ -606,6 +606,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        container?.closeCurrent()
+    }
+
     // MARK: - dev：字幕切轨 / 外挂加载 / 定位的无 GUI 入口
 
     /// `--subtitle-track=N` / `--external-subtitle=/path/to.ass` / `--hold-at=<秒>`

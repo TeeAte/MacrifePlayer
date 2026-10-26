@@ -65,7 +65,10 @@ final class AudioOutput {
         }
     }
 
-    private func handleConfigurationChange() {
+    /// 音频硬件配置变更回调（设备重连、休眠唤醒等）
+    var onConfigurationChange: (() -> Void)?
+
+    func handleConfigurationChange() {
         guard engineRunning else { return }
         // 重新连一次，然后重启引擎；已排队的 buffer 会丢，播放器会自然重新缓冲。
         engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -73,9 +76,14 @@ final class AudioOutput {
         do { try engine.start() } catch {
             engineRunning = false
         }
+        onConfigurationChange?()
     }
 
     func teardown() {
+        if let o = configObserver {
+            NotificationCenter.default.removeObserver(o)
+            configObserver = nil
+        }
         if player.isPlaying { player.stop() }
         if engineRunning {
             engine.stop()

@@ -380,6 +380,8 @@ final class PlaybackEngine {
         rifeInputQueue.reopen()
         rifeJobQueues.forEach { $0.reopen() }
         rifeReorder.reopen()
+        videoGate.unfreeze()
+        audioGate.unfreeze()
         frameLock.lock(); pendingFrame = nil; lastPresentedPTS = -1; loggedFirstFrame = false; audioPrebufferDone = false; frameLock.unlock()
         demuxReadCount = 0; pushTimeouts = 0; lastDemuxTrace = 0; loggedEOF = false
         anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
@@ -435,6 +437,9 @@ final class PlaybackEngine {
                 audioDecoder = dec
                 let out = AudioOutput(sampleRate: 48_000, channels: 2)
                 out.volume = storedVolume
+                out.onConfigurationChange = { [weak self] in
+                    self?.handleAudioConfigurationChange()
+                }
                 do {
                     try out.start()
                     audioOutput = out
@@ -527,11 +532,24 @@ final class PlaybackEngine {
         stateLock.lock(); wantPlaying = false; stateLock.unlock()
         audioOutput?.pause()
         clock.pause()
+        frameLock.lock()
+        audioPrebufferDone = false
+        frameLock.unlock()
         setState(.paused)
     }
 
     func togglePlayPause() {
         if state == .playing { pause() } else { play() }
+    }
+
+    private func handleAudioConfigurationChange() {
+        Self.log("音频硬件配置改变（设备休眠唤醒或输出切换），重新校准音视频时间轴...")
+        anchorLock.lock()
+        audioAnchorPTS = nil
+        audioTimeOffset = 0
+        audioBuffersScheduled = false
+        anchorLock.unlock()
+        clock.scheduledAudioEnd = currentTime
     }
 
     func seek(to seconds: Double) {
@@ -640,8 +658,8 @@ final class PlaybackEngine {
                 presented = candidate
             }
         } else {
-            // 严格过滤并丢弃任何小于当前有效起始 PTS 的旧世代过期残留帧（seek/起播残留）
-            let validFloor = currentMinValidPTS
+            // 严格过滤并丢弃任何小于当前有效起始 PTS 或小于已呈现 PTS 的旧世代过期残留帧（seek/起播残留/逆序帧）
+            let validFloor = max(currentMinValidPTS, loggedFirstFrame ? lastPresentedPTS : 0)
             while let candidate = pendingFrame, candidate.pts < validFloor {
                 pendingFrame = frameQueue.tryPop()
                 lateDropped += 1
@@ -654,14 +672,39 @@ final class PlaybackEngine {
                 lateDropped += 1
             }
 
-            // 迟到丢帧保护门限：仅在视频落后于音频主时钟时丢帧追赶，保证音画严格同步。
-            // 补帧开启时，由于神经网络推理队列存在固有在途延迟，门限设为 0.35 秒；正常播放设为 0.15 秒。
-            // 首帧尚未上屏前绝不丢帧，防止起播/seek阶段将首批帧误杀。
+            // 迟到丢帧保护门限与音画脱节自愈：
+            // 1. 若时钟超前画面过多（> desyncThreshold），说明发生了暂停恢复、瞬时卡顿或音频漂移。
+            //    此时若继续单向丢帧，会导致解码/补帧赶不上时钟进而陷入死循环丢帧卡死（画面冻结、进度条照走）。
+            //    因此直接将主时钟拉回到当前有效画面的 PTS，重置音频基准，彻底消除卡死。
+            // 2. 若时钟滞后于画面过多（candidate.pts > now + 0.25），说明时钟被异常回拨或落后。
+            //    立即拉齐时钟至当前画面，避免画面定格等待时钟爬升。
+            // 3. 正常小幅落后（音频领先在 lateThreshold 内）：通过丢弃过期帧追赶时钟，保证音画严格同步。
             let lateThreshold = isInterpolating ? 0.35 : 0.15
-            if loggedFirstFrame {
-                while let candidate = pendingFrame, now - candidate.pts > lateThreshold {
-                    pendingFrame = frameQueue.tryPop()
-                    lateDropped += 1
+            let desyncThreshold = isInterpolating ? 0.60 : 0.35
+
+            if loggedFirstFrame, let candidate = pendingFrame {
+                let diff = now - candidate.pts
+                if diff > desyncThreshold && candidate.pts >= lastPresentedPTS {
+                    clock.reset(to: candidate.pts)
+                    anchorLock.lock()
+                    if let a = audioAnchorPTS {
+                        let played = audioOutput?.renderedSeconds() ?? 0.0
+                        self.audioTimeOffset = (a + played) - candidate.pts
+                    }
+                    anchorLock.unlock()
+                } else if diff < -0.25 && candidate.pts >= lastPresentedPTS {
+                    clock.reset(to: candidate.pts)
+                    anchorLock.lock()
+                    if let a = audioAnchorPTS {
+                        let played = audioOutput?.renderedSeconds() ?? 0.0
+                        self.audioTimeOffset = (a + played) - candidate.pts
+                    }
+                    anchorLock.unlock()
+                } else if diff > lateThreshold {
+                    while let c = pendingFrame, now - c.pts > lateThreshold {
+                        pendingFrame = frameQueue.tryPop()
+                        lateDropped += 1
+                    }
                 }
             }
 
@@ -673,9 +716,10 @@ final class PlaybackEngine {
             let targetFPS = StatsPanelView.targetFrameRate(source: srcFPS, mode: PlaybackSettings.shared.rifeRateMode)
             let activeFPS = targetFPS > 0 ? targetFPS : (srcFPS > 0 ? srcFPS : 60.0)
             let earlyTolerance = max(0.010, min(0.022, 0.70 / activeFPS))
+            let effectiveNow = clock.currentTime()
 
             if let candidate = pendingFrame {
-                if candidate.pts <= now + earlyTolerance {
+                if candidate.pts <= effectiveNow + earlyTolerance {
                     pendingFrame = nil
                     let prevPTS = lastPresentedPTS
                     lastPresentedPTS = candidate.pts
@@ -743,30 +787,51 @@ final class PlaybackEngine {
     private func shutdownPipeline() {
         stopTicker()
 
-        stateLock.lock(); stopRequested = true; seekRequested = nil; wantPlaying = false
+        stateLock.lock()
+        stopRequested = true
+        seekRequested = nil
+        wantPlaying = false
+        generation &+= 1
         stateLock.unlock()
 
-        // 关队列唤醒所有阻塞中的线程
-        videoPacketQueue.close()
-        audioPacketQueue.close()
-        frameQueue.close()
-        rifeInputQueue.close()
-        rifeJobQueues.forEach { $0.close() }
+        clock.pause()
+
+        // 唤醒所有门闸并重置 RIFE 引擎缓存
+        videoGate.cancel()
+        audioGate.cancel()
+        CoreMLRIFEEngine.shared.reset()
+
+        // 冲刷并关闭队列唤醒所有阻塞中的线程
+        rifeReorder.discardPending()
         rifeReorder.close()
+        videoPacketQueue.flush()
+        videoPacketQueue.close()
+        audioPacketQueue.flush()
+        audioPacketQueue.close()
+        frameQueue.flush()
+        frameQueue.close()
+        rifeInputQueue.flush()
+        rifeInputQueue.close()
+        rifeJobQueues.forEach {
+            $0.flush()
+            $0.close()
+        }
         stateLock.lock(); rifeThreadsStarted = false; stateLock.unlock()
-        audioOutput?.teardown()
 
         // 显式等待 RIFE 异步推理管线所有调度/工作/出口线程彻底退出
-        if rifeGroup.wait(timeout: .now() + 2) == .timedOut {
+        if rifeGroup.wait(timeout: .now() + 1.0) == .timedOut {
             FileHandle.standardError.write(
-                Data("[PlaybackEngine] 警告：RIFE管线线程未在 2s 内退出\n".utf8))
+                Data("[PlaybackEngine] 警告：RIFE管线线程未在 1s 内退出\n".utf8))
         }
 
         // 等线程真正退出（每个线程都在 threadGroup 里）
-        if threadGroup.wait(timeout: .now() + 3) == .timedOut {
+        if threadGroup.wait(timeout: .now() + 1.0) == .timedOut {
             FileHandle.standardError.write(
-                Data("[PlaybackEngine] 警告：工作线程未在 3s 内退出\n".utf8))
+                Data("[PlaybackEngine] 警告：工作线程未在 1s 内退出\n".utf8))
         }
+
+        // 此时工作线程均已退出，安全关闭音频输出
+        audioOutput?.teardown()
 
         // 此时没有线程在跑，可以安全拆组件
         if let cap = captureSession {
@@ -1894,7 +1959,18 @@ final class PlaybackEngine {
     }
 
     private func startTicker() {
-        stopTicker()
+        if Thread.isMainThread {
+            startTickerOnMain()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startTickerOnMain()
+            }
+        }
+    }
+
+    private func startTickerOnMain() {
+        guard !isStopping else { return }
+        stopTickerOnMain()
         let t = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -1903,11 +1979,22 @@ final class PlaybackEngine {
     }
 
     private func stopTicker() {
+        if Thread.isMainThread {
+            stopTickerOnMain()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.stopTickerOnMain()
+            }
+        }
+    }
+
+    private func stopTickerOnMain() {
         ticker?.invalidate()
         ticker = nil
     }
 
     private func tick() {
+        guard !isStopping else { return }
         delegate?.playbackEngine(self, didUpdateTime: currentTime, duration: duration)
         applyScriptedSeekIfRequested()
         applyScriptedSeekLoopIfRequested()
