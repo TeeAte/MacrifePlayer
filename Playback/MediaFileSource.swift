@@ -39,6 +39,17 @@ final class MediaFileSource {
     private(set) var audioSampleRate = 0
     private(set) var audioChannels = 0
 
+    /// 容器是否**只给了解码序时间戳**（缺呈现序补偿）。
+    ///
+    /// 命中时 `VideoDecoder` 会丢掉容器 pts，改用「输出序号 × 帧时长」重建时间轴。
+    ///
+    /// 真凶现场（The.Parent.Trap.1998.1080p.BluRay.x265-RARBG.mp4）：
+    /// MP4 的 stbl 里**没有 ctts 盒子**，于是每个样点的 pts 就等于 dts = 解码序。
+    /// libavcodec 吐出来的是显示序（POC 序），但这些帧身上贴的是解码序时间戳 ——
+    /// 同一 GOP 内时间戳会前后乱跳（实测 0.042 → 0.083 → 0.000 → 0.125 → 0.250 → 0.292 → 0.209）。
+    /// 任何按这些时间戳排队/丢帧的逻辑都会把画面在一段里反复倒着放。
+    private(set) var videoTimestampsAreDecodeOrder = false
+
     /// 是否为 MTS / M2TS 摄像机格式或流层标记为隔行扫描 (Interlaced 50i/60i)
     var isMTSOrInterlacedHint: Bool {
         let ext = url.pathExtension.lowercased()
@@ -122,6 +133,19 @@ final class MediaFileSource {
             duration = FFmpegSupport.seconds(st.pointee.duration, st.pointee.time_base)
         }
 
+        // 关键的一次性探测：这个片源的样点时间戳到底是不是呈现序。
+        // 只在「编码层声明了 B 帧延迟」时才有意义 —— 没有 B 帧时解码序 == 显示序，
+        // pts == dts 是正常的，不该误判。
+        if let st = stream(videoStreamIndex) {
+            videoTimestampsAreDecodeOrder = Self.probeDecodeOrderTimestamps(
+                url: url,
+                hasDecoderDelay: st.pointee.codecpar.pointee.video_delay > 0)
+            if videoTimestampsAreDecodeOrder {
+                FileHandle.standardError.write(Data(
+                    "[MediaFileSource] 容器缺少呈现序时间戳（pts==dts，无 ctts/重排偏移）→ 视频时间轴改由解码输出序号重建\n".utf8))
+            }
+        }
+
         readPacket = av_packet_alloc()
         if readPacket == nil {
             var p: UnsafeMutablePointer<AVFormatContext>? = opened
@@ -137,6 +161,51 @@ final class MediaFileSource {
         readPacket = nil
         if ctx != nil { avformat_close_input(&ctx) }
         ctx = nil
+    }
+
+    /// 探测容器里的视频样点时间戳是不是只有解码序。
+    ///
+    /// 做法：另开一个**只读**上下文扫前 240 个视频包，看有没有任何一个包 pts != dts。
+    /// 为什么不就地在主上下文里扫：`av_read_frame` 会把解封装位置推走，还得再 seek 回 0；
+    /// 一旦那个 seek 失败（部分容器 start_time 不为 0），起播就会直接从几秒之后开始。
+    /// 另开上下文多花一次 moov 解析（~10ms），换的是绝对安全。
+    private static func probeDecodeOrderTimestamps(url: URL, hasDecoderDelay: Bool) -> Bool {
+        // 没有 B 帧 → 解码序恒等于显示序，pts == dts 是正常现象，不判。
+        guard hasDecoderDelay else { return false }
+
+        var fmt: UnsafeMutablePointer<AVFormatContext>?
+        let openRC = url.path.withCString { avformat_open_input(&fmt, $0, nil, nil) }
+        guard openRC >= 0, let c = fmt else { return false }
+        defer {
+            var p: UnsafeMutablePointer<AVFormatContext>? = c
+            avformat_close_input(&p)
+        }
+        guard avformat_find_stream_info(c, nil) >= 0 else { return false }
+        let index = Int(av_find_best_stream(c, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0))
+        guard index >= 0, index < Int(c.pointee.nb_streams) else { return false }
+
+        var pkt: UnsafeMutablePointer<AVPacket>? = av_packet_alloc()
+        guard pkt != nil else { return false }
+        defer { if pkt != nil { av_packet_free(&pkt) } }
+
+        var videoPackets = 0
+        var sawPresentationOrder = false
+        let limit = 240
+        while videoPackets < limit, !sawPresentationOrder {
+            guard av_read_frame(c, pkt) >= 0 else { break }
+            if pkt!.pointee.stream_index == Int32(index) {
+                videoPackets += 1
+                let pts = pkt!.pointee.pts
+                let dts = pkt!.pointee.dts
+                if pts != Int64.min, dts != Int64.min, pts != dts {
+                    sawPresentationOrder = true
+                }
+            }
+            av_packet_unref(pkt)
+        }
+        // 包太少不足以判断时按「可信」处理：宁可不修，也不能误改正常片源的时间轴。
+        guard videoPackets >= 8 else { return false }
+        return !sawPresentationOrder
     }
 
     enum SourceError: LocalizedError {

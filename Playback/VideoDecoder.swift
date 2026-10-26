@@ -103,6 +103,18 @@ final class VideoDecoder {
     let isMTSOrInterlacedHint: Bool
     private var didLogDeinterlace: Bool = false
 
+    /// 容器时间戳不可信（只有解码序、没有呈现序补偿）时，用「输出序号 × 帧时长」
+    /// 重建单调时间轴。判定见 `MediaFileSource.videoTimestampsAreDecodeOrder`。
+    ///
+    /// 为什么这样能修：libavcodec 的 h264/hevc 解码器输出的是**显示序**（POC 序），
+    /// 只是每帧身上贴的 pts 来自容器。容器缺 ctts 时那个 pts 是解码序，
+    /// 同一 GOP 内会前后乱跳；而输出序号本身就是显示序，按序号 × 帧时长
+    /// 推进出来的时间轴与真实播放进度一致，也不需要任何重排序缓冲。
+    let rebuildTimeline: Bool
+    private let frameInterval: Double
+    private var timelineBase: Double? = nil
+    private var timelineIndex: Int = 0
+
     /// VideoToolbox 硬解像素格式协商回调
     private static let vtGetFormat: @convention(c) (UnsafeMutablePointer<AVCodecContext>?, UnsafePointer<AVPixelFormat>?) -> AVPixelFormat = { _, pixFmts in
         guard let pixFmts = pixFmts else { return AV_PIX_FMT_NONE }
@@ -120,13 +132,16 @@ final class VideoDecoder {
          timeBase: AVRational,
          useHardware: Bool = true,
          frameRate: Double = 25,
-         isMTSOrInterlacedHint: Bool = false) throws {
+         isMTSOrInterlacedHint: Bool = false,
+         rebuildTimeline: Bool = false) throws {
         FFmpegSupport.ensureReady()
         self.timeBase = timeBase
         self.width = Int(parameters.pointee.width)
         self.height = Int(parameters.pointee.height)
         self.frameRate = (frameRate > 0.1 && frameRate < 1000) ? frameRate : 25
         self.isMTSOrInterlacedHint = isMTSOrInterlacedHint
+        self.rebuildTimeline = rebuildTimeline
+        self.frameInterval = 1.0 / self.frameRate
 
         guard let decoder = avcodec_find_decoder(parameters.pointee.codec_id) else {
             throw FFmpegFailure(stage: "avcodec_find_decoder", code: -1)
@@ -188,10 +203,14 @@ final class VideoDecoder {
         if codecCtx != nil { avcodec_free_context(&codecCtx) }
     }
 
-    /// seek 之后调用：清掉解码器内部缓存的 GOP / 参考帧。
+    /// seek 之后调用：清掉解码器内部缓存的 GOP / 参考帧，并让重建的时间轴重新取基准。
     func reset() {
         guard let ctx = codecCtx else { return }
         avcodec_flush_buffers(ctx)
+        // 重建模式下基准必须跟着 seek 一起挪：下一个包是 seek 落点的关键帧，
+        // 它的 pts 就是新时间轴的起点。
+        timelineBase = nil
+        timelineIndex = 0
     }
 
     // MARK: - 解码
@@ -205,6 +224,17 @@ final class VideoDecoder {
             av_packet_unref(sc)
             let rc = av_packet_ref(sc, p)
             if rc < 0 { return [] }
+            // 重建模式的时间轴基准：取本次解码的首个包的 pts。
+            // 起播/seek 之后的第一个包必然是关键帧，而关键帧的呈现序恒等于解码序，
+            // 它的 pts 就是该帧的真实显示时刻 —— 拿它当基准不会偏。
+            //
+            // 已知残差：如果容器用 edit list 裁掉了开头若干样点，关键帧本身不会出现在
+            // 解码输出里，时间轴就会整体早 1 帧（实测 23.976fps 片源 = 42ms）。
+            // 要消掉它得知道「首帧的 POC」，而缺 ctts 的容器里没有这个信息，
+            // 相比 42ms 的偏移，把时间戳做成单调的收益大得多。
+            if rebuildTimeline, timelineBase == nil, p.pointee.pts != Int64.min {
+                timelineBase = FFmpegSupport.seconds(p.pointee.pts, timeBase)
+            }
         } else {
             av_packet_unref(sc)   // 传 nil 时给一个空的包 → 冲刷
         }
@@ -213,7 +243,7 @@ final class VideoDecoder {
         av_packet_unref(sc)
         if sendRC < 0 { return [] }   // EAGAIN / 坏包：跳过
 
-        var out: [DecodedVideoFrame] = []
+        var freshlyDecoded: [DecodedVideoFrame] = []
         let deintMode = PlaybackSettings.shared.deinterlaceMode
 
         while true {
@@ -225,8 +255,7 @@ final class VideoDecoder {
                 isHardwareAccelerated = (src == AV_PIX_FMT_VIDEOTOOLBOX)
             }
             if let pb = convert(fr) {
-                let pts = FFmpegSupport.seconds(fr.pointee.pts == Int64.min ? 0 : fr.pointee.pts,
-                                               timeBase)
+                let pts = presentationTime(for: fr)
                 let (csCode, is709) = Self.resolveColorSpace(fr)
                 let fullRange = Self.resolveFullRange(fr, pixelBuffer: pb)
                 let transferFunc = Self.resolveTransferFunction(fr, pixelBuffer: pb)
@@ -254,14 +283,14 @@ final class VideoDecoder {
                     }
                     // 双场倍帧输出：计算半帧时间步长 (60i -> 59.94/60.0 FPS; 50i -> 50.0 FPS)
                     let delta = (frameRate > 1.0) ? (0.5 / frameRate) : 0.016683
-                    out.append(DecodedVideoFrame(pixelBuffer: f0,
+                    freshlyDecoded.append(DecodedVideoFrame(pixelBuffer: f0,
                                                  pts: pts,
                                                  isBT709: is709,
                                                  colorSpaceCode: csCode,
                                                  isFullRange: fullRange,
                                                  transferFunction: transferFunc,
                                                  peakNits: peakNits))
-                    out.append(DecodedVideoFrame(pixelBuffer: f1,
+                    freshlyDecoded.append(DecodedVideoFrame(pixelBuffer: f1,
                                                  pts: pts + delta,
                                                  isBT709: is709,
                                                  colorSpaceCode: csCode,
@@ -269,7 +298,7 @@ final class VideoDecoder {
                                                  transferFunction: transferFunc,
                                                  peakNits: peakNits))
                 } else {
-                    out.append(DecodedVideoFrame(pixelBuffer: pb,
+                    freshlyDecoded.append(DecodedVideoFrame(pixelBuffer: pb,
                                                  pts: pts,
                                                  isBT709: is709,
                                                  colorSpaceCode: csCode,
@@ -280,7 +309,28 @@ final class VideoDecoder {
             }
             av_frame_unref(fr)
         }
-        return out
+
+        // 这里**不做**按 pts 的重排序。
+        //
+        // 曾经加过一个「按 pts 排序的 reorderBuffer」，出发点是「解码器吐 DTS 序」——
+        // 那个前提是错的：libavcodec 的 h264/hevc 解码器输出就是显示序（POC 序），
+        // 到这一步帧的顺序已经是对的。对着已经正确的顺序再按 pts 排一次，
+        // 反而会把它们打乱（容器 pts 不单调的片源尤其致命：等于每个小窗口内
+        // 把画面重新洗牌，观感就是「在一段里反复倒退播放」）。
+        return freshlyDecoded
+    }
+
+    /// 取这一帧的呈现时间（秒）。
+    ///
+    /// 正常片源直接用解码器给的 pts。重建模式下改用「输出序号 × 帧时长」：
+    /// 输出序号本身是显示序，逐帧累加出来的时间轴单调且与真实播放进度一致。
+    private func presentationTime(for fr: UnsafeMutablePointer<AVFrame>) -> Double {
+        guard rebuildTimeline else {
+            return FFmpegSupport.seconds(fr.pointee.pts == Int64.min ? 0 : fr.pointee.pts, timeBase)
+        }
+        let t = (timelineBase ?? 0) + Double(timelineIndex) * frameInterval
+        timelineIndex += 1
+        return t
     }
 
     /// 选色彩空间：0 = BT.601, 1 = BT.709, 2 = BT.2020

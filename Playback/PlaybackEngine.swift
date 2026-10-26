@@ -232,6 +232,7 @@ final class PlaybackEngine {
     /// （≈8.3 秒）基本配平，谁先满都能及时把解封装线程刹住，不会互相饿死。
     private let audioPacketQueue = BoundedQueue<PacketItem>(capacity: 128)
     private let frameQueue = BoundedQueue<DecodedVideoFrame>(capacity: 48)
+    private var lastPushedPTS: Double? = nil
     private let rifeEngine = RIFEInterpolationEngine()
     private let flavrEngine = FLAVRInterpolationEngine()
     /// 每个编解码上下文一把门闸：视频与音频独立，解码可以并行；
@@ -420,10 +421,11 @@ final class PlaybackEngine {
                                        timeBase: src.videoTimeBase,
                                        useHardware: useHW,
                                        frameRate: src.videoFrameRate,
-                                       isMTSOrInterlacedHint: src.isMTSOrInterlacedHint)
+                                       isMTSOrInterlacedHint: src.isMTSOrInterlacedHint,
+                                       rebuildTimeline: src.videoTimestampsAreDecodeOrder)
             videoDecoder = dec
             videoSize = CGSize(width: dec.width, height: dec.height)
-            Self.log("视频解码器已建立: \(dec.codecName) (\(dec.isHardwareAccelerated ? "硬解 VideoToolbox" : "软解")) [MTS/隔行提示: \(src.isMTSOrInterlacedHint)]")
+            Self.log("视频解码器已建立: \(dec.codecName) (\(dec.isHardwareAccelerated ? "硬解 VideoToolbox" : "软解")) [MTS/隔行提示: \(src.isMTSOrInterlacedHint), 时间轴重建: \(dec.rebuildTimeline)]")
         }
         let initialAudioIdx = src.audioStreamIndex
         stateLock.lock(); _selectedAudioStreamIndex = initialAudioIdx; stateLock.unlock()
@@ -652,52 +654,47 @@ final class PlaybackEngine {
                 lateDropped += 1
             }
 
-            // 迟到丢帧保护门限：仅在音画脱节时才丢帧追时钟，避免误杀正常插值帧。
-            // 补帧开启时，由于异步推理队列存在固有在途延迟，保护门限放宽至 0.8 秒；
-            // 且首帧尚未上屏前绝不丢帧，防止起播/seek阶段将首批帧误杀
-            let lateThreshold = isInterpolating ? 0.80 : 0.40
-            if let c = pendingFrame {
-                let diff = now - c.pts
-                if diff > 0.25 {
-                    // 音画脱节自愈（Seek、起播等待或瞬时卡顿导致的落差）：强行将时钟对齐到当前画面，杜绝死循环丢帧卡死与周期性微顿挫
-                    clock.reset(to: c.pts)
-                    anchorLock.lock()
-                    if let a = audioAnchorPTS {
-                        let played = audioOutput?.renderedSeconds() ?? 0.0
-                        self.audioTimeOffset = (a + played) - c.pts
-                    }
-                    anchorLock.unlock()
-                } else if diff > lateThreshold && loggedFirstFrame {
-                    while let nextCandidate = pendingFrame, now - nextCandidate.pts > lateThreshold {
-                        pendingFrame = frameQueue.tryPop()
-                        lateDropped += 1
-                    }
+            // 迟到丢帧保护门限：仅在视频落后于音频主时钟时丢帧追赶，保证音画严格同步。
+            // 补帧开启时，由于神经网络推理队列存在固有在途延迟，门限设为 0.35 秒；正常播放设为 0.15 秒。
+            // 首帧尚未上屏前绝不丢帧，防止起播/seek阶段将首批帧误杀。
+            let lateThreshold = isInterpolating ? 0.35 : 0.15
+            if loggedFirstFrame {
+                while let candidate = pendingFrame, now - candidate.pts > lateThreshold {
+                    pendingFrame = frameQueue.tryPop()
+                    lateDropped += 1
                 }
             }
 
-            // 根据目标帧率动态计算提前上屏容差（覆盖 ~70% 的 V-Sync 刷新周期，例如 60fps 对应 ~11.6ms，24fps 对应 ~22ms）
-            // 彻底防止因 1ms 调度微差错过刷新窗口导致的 15~30Hz 规律性周期性抽搐 (Judder)
+            // 提前上屏容差：按源帧率覆盖 ~70% 的刷新周期（24fps → 22ms，60fps → 11ms）。
+            // 音频主时钟是采样计数驱动的，但 `lastRenderTime` 只在渲染周期边界更新，
+            // 折算下来有 10~21ms 的台阶。容差必须盖住这个台阶，否则本该这拍上屏的帧
+            // 会一直等到下一拍，表现为周期性抽动。写死 8ms 时 24fps 片源正好卡在台阶边缘。
             let srcFPS = videoDecoder?.frameRate ?? (isCaptureMode ? captureFPS : 24.0)
             let targetFPS = StatsPanelView.targetFrameRate(source: srcFPS, mode: PlaybackSettings.shared.rifeRateMode)
             let activeFPS = targetFPS > 0 ? targetFPS : (srcFPS > 0 ? srcFPS : 60.0)
             let earlyTolerance = max(0.010, min(0.022, 0.70 / activeFPS))
 
-            if let candidate = pendingFrame, candidate.pts <= now + earlyTolerance {
-                pendingFrame = nil
-                lastPresentedPTS = candidate.pts
-                if !loggedFirstFrame {
-                    loggedFirstFrame = true
-                    // 首帧上屏瞬间：如果音频已就绪，通过 audioTimeOffset 精确拉齐时钟零点
-                    anchorLock.lock()
-                    if let a = audioAnchorPTS {
-                        let played = audioOutput?.renderedSeconds() ?? 0.0
-                        self.audioTimeOffset = (a + played) - candidate.pts
+            if let candidate = pendingFrame {
+                if candidate.pts <= now + earlyTolerance {
+                    pendingFrame = nil
+                    let prevPTS = lastPresentedPTS
+                    lastPresentedPTS = candidate.pts
+                    if loggedFirstFrame, candidate.pts < prevPTS {
+                        Self.log("🚨🚨🚨 BACKWARD PTS DETECTED in nextFrameForDisplay! prev=\(prevPTS) cur=\(candidate.pts) diff=\(candidate.pts - prevPTS)")
                     }
-                    anchorLock.unlock()
-                    clock.reset(to: candidate.pts)
-                    Self.log("首帧上屏 pts=\(String(format: "%.3f", candidate.pts))s (音视频时钟基准已绝对对齐)")
+                    if !loggedFirstFrame {
+                        loggedFirstFrame = true
+                        anchorLock.lock()
+                        if let a = audioAnchorPTS {
+                            let played = audioOutput?.renderedSeconds() ?? 0.0
+                            self.audioTimeOffset = (a + played) - candidate.pts
+                        }
+                        anchorLock.unlock()
+                        clock.reset(to: candidate.pts)
+                        Self.log("首帧上屏 pts=\(String(format: "%.3f", candidate.pts))s (音视频时钟基准已绝对对齐)")
+                    }
+                    presented = candidate
                 }
-                presented = candidate
             }
         }
         frameLock.unlock()
@@ -1321,6 +1318,10 @@ final class PlaybackEngine {
             // 换代（seek/切轨）后仍在本函数里的残留帧直接丢弃
             if currentGeneration() != gen { return }
             if outFrame.pts < floor { continue }
+            if let last = lastPushedPTS, outFrame.pts < last {
+                Self.log("🚨🚨🚨 BACKWARD PTS DETECTED in pushOutputs! last=\(last) cur=\(outFrame.pts) diff=\(outFrame.pts - last)")
+            }
+            lastPushedPTS = outFrame.pts
             if isLowLatency {
                 // 仅在未开启补帧的极低延迟模式下丢弃积压旧帧
                 if frameQueue.count >= lowLatencyCap {
@@ -1476,6 +1477,7 @@ final class PlaybackEngine {
         videoPacketQueue.flush()
         audioPacketQueue.flush()
         frameQueue.flush()
+        lastPushedPTS = nil
         rifeInputQueue.flush()
         rifeReorder.discardPending()
         rifeJobQueues.forEach { $0.flush() }
@@ -1619,6 +1621,7 @@ final class PlaybackEngine {
         videoPacketQueue.flush()
         audioPacketQueue.flush()
         frameQueue.flush()
+        lastPushedPTS = nil
         rifeInputQueue.flush()
         rifeReorder.discardPending()
         rifeEngine.reset()

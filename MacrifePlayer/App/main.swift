@@ -21,4 +21,9 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
+
+// dev-only：MP_PROBE_DECODE=<文件> 时走无窗口解码探针，跑完直接退出（见 FrameDumper）。
+// 不设这个环境变量就完全等价于原来的启动路径。
+FrameDumper.runDecodeProbeIfRequested()
+
 app.run()
