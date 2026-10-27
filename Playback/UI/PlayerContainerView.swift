@@ -116,6 +116,7 @@ final class PlayerContainerView: NSView {
     func open(url: URL) { onNotice?("FFmpeg 未启用，无法播放 \(url.lastPathComponent)") }
     func open(urls: [URL], startIndex: Int) { }
     func closeCurrent() { }
+    func shutdownForTermination() { }
     func togglePlayPause() { }
     func seek(to seconds: Double) { }
     func seekRelative(_ delta: Double) { }
@@ -818,6 +819,21 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
                 }
             }
         }
+    }
+
+    /// 退出前的收尾：只做「进度落盘 + 停引擎 + 清帧」，**不碰 UI、不发回调**。
+    ///
+    /// 为什么不直接复用 `closeCurrent()`：`applicationWillTerminate` 触发时，
+    /// 窗口往往已经被关窗流程走过一遍了（用户点红点 → AppKit 收尾 → 才走到 terminate）。
+    /// 这时 `showStatusPill` / `overlay.setEnabled` / `playlistPanel.setItems` 是在给一棵
+    /// 正在拆的视图树发消息，而 `onCurrentURLChanged?(nil)` 会一路走到
+    /// `PlayerWindowController` 里设窗口标题 —— 那正是崩溃点（见 2026-10-27 崩溃报告）。
+    ///
+    /// 退出真正需要的只有三件事：进度别丢、线程别留着、Metal 帧别挂着。
+    func shutdownForTermination() {
+        saveCurrentProgressIfNeeded()
+        engine.shutdown()
+        renderView.clearFrame()
     }
 
     func closeCurrent() {

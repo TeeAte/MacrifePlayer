@@ -50,6 +50,25 @@
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
+			<!--
+			  LSItemContentTypes 是新版 LaunchServices 的唯一可靠依据。
+			  只给 CFBundleTypeExtensions 时，claim 在老系统上还能靠扩展名兜住，
+			  但 macOS 26 起系统是按 UTI 判定的：缺这一节就会出现
+			  「声明了能打开、Finder 却说打不开」的半吊子状态。
+			  扩展名一节保留，兼容仍在用 legacy 匹配的调用方。
+			-->
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.mpeg-4</string>
+				<string>com.apple.m4v-video</string>
+				<string>com.apple.quicktime-movie</string>
+				<string>public.mpeg-2-transport-stream</string>
+				<string>public.avchd-mpeg-2-transport-stream</string>
+				<string>public.avi</string>
+				<string>org.matroska.mkv</string>
+				<string>org.webmproject.webm</string>
+				<string>com.adobe.flash.video</string>
+			</array>
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>mts</string>

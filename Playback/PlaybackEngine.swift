@@ -499,7 +499,15 @@ final class PlaybackEngine {
         let rifeActive = (PlaybackSettings.shared.rifeRateMode != .off)
         // 补帧模式下：必须等待首批插值帧预缓冲就绪才唤醒音频，彻底防止音频抢跑导致的画面追赶与疯狂丢帧
         if scheduled && (!rifeActive || audioPrebufferDone) {
+            if Self.pauseDiagEnabled {
+                Self.log("[play] 唤醒音频：scheduled=true rife=\(rifeActive) prebuffer=\(audioPrebufferDone)")
+            }
             audioOutput?.play()
+        } else if Self.pauseDiagEnabled {
+            Self.log("[play] 跳过唤醒：scheduled=\(scheduled) rife=\(rifeActive) "
+                     + "prebuffer=\(audioPrebufferDone) "
+                     + String(format: "限流超前 %.2fs | ", clock.scheduledLead())
+                     + (audioOutput?.debugStateText ?? "无"))
         }
         clock.start()
         setState(.playing)
@@ -532,9 +540,15 @@ final class PlaybackEngine {
         stateLock.lock(); wantPlaying = false; stateLock.unlock()
         audioOutput?.pause()
         clock.pause()
-        frameLock.lock()
-        audioPrebufferDone = false
-        frameLock.unlock()
+        // 这里**不能**清 audioPrebufferDone。
+        //
+        // 它的语义是「首批插值帧已经缓冲够，可以把音频放出来了」，属于**本次起播**
+        // 的一次性前置条件（open / seek 时归零）。暂停恢复时帧队列里早就有几十帧，
+        // 没有任何理由重新等一次预缓冲；清了它只会让 `play()` 里的
+        // `scheduled && (!rifeActive || audioPrebufferDone)` 判定为假，
+        // 而唯一能把它重新置 true 的 pushOutputs 恰好要求解码线程继续出帧——
+        // 暂停时队列是满的、出不了帧，于是恢复时没人唤醒音频，
+        // renderedSeconds() 恒为 nil、音频主时钟冻结在暂停那一刻，画面与进度条一起停死。
         setState(.paused)
     }
 
@@ -1410,6 +1424,10 @@ final class PlaybackEngine {
         let prebufferTarget = (PlaybackSettings.shared.rifeRateMode != .off) ? 8 : 3
         if !audioPrebufferDone && frameQueue.count >= prebufferTarget {
             audioPrebufferDone = true
+            if Self.pauseDiagEnabled {
+                Self.log("[pushOutputs] 预缓冲达成 → audioPrebufferDone=true（帧队列 \(frameQueue.count)）"
+                         + "，wantPlaying=\(isWantPlaying) audioOut=\(audioOutput?.debugStateText ?? "无")")
+            }
             if isWantPlaying, let out = audioOutput, !out.isPlaying {
                 out.play()
             }
@@ -1478,6 +1496,10 @@ final class PlaybackEngine {
         }
         guard scheduledAny else { return }
         if isWantPlaying, !out.isPlaying {
+            if Self.pauseDiagEnabled {
+                Self.log("[scheduleAudio] 排入后唤醒音频：rife=\(PlaybackSettings.shared.rifeRateMode != .off) "
+                         + "帧队列=\(frameQueue.count) prebuffer=\(audioPrebufferDone)")
+            }
             let rifeActive = (PlaybackSettings.shared.rifeRateMode != .off)
             if rifeActive {
                 // 原版 startRIFEAudioAfterPrebufferIfNeeded:
@@ -1511,6 +1533,15 @@ final class PlaybackEngine {
         while !isStopping {
             let ahead = clock.scheduledLead()
             if ahead < 0.9 { return }
+
+            // 自救：这个循环在等「已排音频被消耗」，而消耗的前提是 player 真的在渲染。
+            // 进入播放态但节点没跑时，两者互为死锁 —— 循环不放行就不排新 buffer，
+            // 不排 buffer 就没人调 play()，player 不渲染则超前量永远算不出真实值。
+            // 每轮补一次起播（内部幂等），循环就能自然解开。
+            if isWantPlaying, let out = audioOutput, !out.isPlaying {
+                out.play()
+            }
+
             if blockedSince == 0 {
                 blockedSince = Date.timeIntervalSinceReferenceDate
             } else if !warned, Date.timeIntervalSinceReferenceDate - blockedSince > 1.0 {
@@ -1518,6 +1549,14 @@ final class PlaybackEngine {
                 Self.trace(String(format: "audio: 限流阻塞中 —— 超前 %.3fs（排到 %.3f / 当前 %.3f / 队列 %d 包）",
                                   ahead, clock.scheduledAudioEnd, clock.currentTime(),
                                   audioPacketQueue.count))
+                if Self.pauseDiagEnabled {
+                    // 这条是暂停恢复死锁的「卡在哪」证词：一旦音频线程停在这里，
+                    // 而 player 又没人唤醒，ahead 永远算不出真实值（renderedSeconds 为 nil），
+                    // 循环就再也退不出去。
+                    Self.log("[throttleAudio] 阻塞中 —— " + String(format: "超前 %.2fs", ahead)
+                             + "，wantPlaying=\(isWantPlaying) "
+                             + (audioOutput?.debugStateText ?? "无"))
+                }
             }
             Thread.sleep(forTimeInterval: 0.02)
         }
@@ -2002,7 +2041,9 @@ final class PlaybackEngine {
         cpuTraceIfEnabled()
         checkEndOfStream()
         audioWatchdog()
+        resumeStallWatchdog()
         applyEOSReplaySelfTestIfRequested()
+        applyPauseSelfTestIfRequested()
         traceIfEnabled()
     }
 
@@ -2163,6 +2204,79 @@ final class PlaybackEngine {
     }
     private var eosTestSeekTarget: Double = 0
 
+    /// dev-only：`MP_PAUSE_TEST="2:8:6"` —— 「播 2s → 暂停 8s → 恢复，观察 6s」。
+    ///
+    /// 为什么要它：用户报「暂停太久之后点播放没反应，画面和进度条都冻住」。
+    /// 这条链路唯一的失败点是「audioOutput.play() 到底有没有被真的调用」——
+    /// 只要 player 还在 paused，`renderedSeconds()` 就返回 nil，`AVSyncClock.currentTime()`
+    /// 就退化成冻结值 lastTime，渲染侧 `candidate.pts <= now + tol` 永不成立，
+    /// 画面、进度条、解码线程会一起停（队列灌满 → demux 阻塞），表现为彻底卡死。
+    /// 光看代码分不清是「没调用 play」还是「调用了但没生效」，必须把三个读数打出来。
+    ///
+    /// 判定：C→D 期间上屏帧数增长 ≥ 5 且时钟前进 ≥ 0.5s 才算 PASS。
+    private var pauseTestStage = 0
+    private var pauseTestAt: TimeInterval = 0
+    private var pauseTestFrames = 0
+    private var pauseTestClock = 0.0
+    private var pauseTestConfigInjected = false
+    private func applyPauseSelfTestIfRequested() {
+        guard let raw = ProcessInfo.processInfo.environment["MP_PAUSE_TEST"] else { return }
+        let args = raw.split(separator: ":").compactMap { Double($0) }
+        guard args.count >= 3 else { return }
+        let (pauseAt, pauseFor, watchFor) = (args[0], args[1], args[2])
+        let now = ProcessInfo.processInfo.systemUptime
+
+        func readings() -> String {
+            statsLock.lock(); let shown = presentedFrames; statsLock.unlock()
+            return "上屏 \(shown) | 时钟 " + String(format: "%.2f", currentTime)
+                 + String(format: " | 音频排到 %.2f", clock.scheduledAudioEnd)
+                 + " | 队列 帧\(frameQueue.count)/视频\(videoPacketQueue.count)/音频\(audioPacketQueue.count)"
+                 + " | wantPlaying \(isWantPlaying) | " + String(describing: state)
+                 + " | 音频[" + (audioOutput?.debugStateText ?? "无") + "]"
+        }
+
+        switch pauseTestStage {
+        case 0:
+            guard state == .playing, currentTime >= pauseAt else { return }
+            pauseTestStage = 1; pauseTestAt = now
+            Self.log("[暂停自检] A 暂停（已播 \(String(format: "%.2f", currentTime))s）")
+            pause()
+
+        case 1:
+            // dev-only：注入一次「暂停期间系统换了音频设备 / 蓝牙耳机休眠」触发的
+            // AVAudioEngineConfigurationChange。真人场景里这个事件与「暂停很久」
+            // 高度相关（耳机闲置断连、合盖唤醒、输出设备切走），但没法脚本化复现。
+            if ProcessInfo.processInfo.environment["MP_PAUSE_CFGCHANGE"] != nil,
+               now - pauseTestAt >= 1.0, !pauseTestConfigInjected {
+                pauseTestConfigInjected = true
+                Self.log("[暂停自检] 注入一次音频配置变更（模拟设备切换/耳机休眠）")
+                audioOutput?.handleConfigurationChange()
+                Self.log("[暂停自检] 注入后：" + readings())
+            }
+            guard now - pauseTestAt >= pauseFor else { return }
+            pauseTestStage = 2; pauseTestAt = now
+            statsLock.lock(); pauseTestFrames = presentedFrames; statsLock.unlock()
+            pauseTestClock = currentTime
+            Self.log("[暂停自检] B 暂停 \(String(format: "%.1f", pauseFor))s 结束，恢复前：" + readings())
+            play()
+            Self.log("[暂停自检] C 已调用 play()：" + readings())
+
+        case 2:
+            guard now - pauseTestAt >= watchFor else { return }
+            pauseTestStage = 3
+            statsLock.lock(); let shown = presentedFrames; statsLock.unlock()
+            let grew = shown > pauseTestFrames + 5
+            let clocked = currentTime > pauseTestClock + 0.5
+            Self.log("[暂停自检] D 恢复结果：\(grew && clocked ? "PASS" : "FAIL")"
+                     + " — 上屏 \(pauseTestFrames)→\(shown)"
+                     + String(format: "，时钟 %.2f→%.2f", pauseTestClock, currentTime))
+            Self.log("[暂停自检] D 结束态：" + readings())
+
+        default:
+            break
+        }
+    }
+
     /// dev-only 管线追踪：`MP_TRACE=1` 打开，每秒打一行。
     ///
     /// 播放器的问题几乎都是「某一环卡住了」，而单看状态机看不出来是哪一环。
@@ -2191,6 +2305,12 @@ final class PlaybackEngine {
 
     private static let traceEnabled =
         DevFlag.on("MP_TRACE", "--trace")
+
+    /// dev-only：暂停恢复自检期间的唤醒链路诊断（`MP_PAUSE_TEST` 存在时打开）。
+    /// 要回答的只有一个问题：恢复播放时到底是谁把 AVAudioPlayerNode 重新拉起来的，
+    /// 或者——谁都没拉。三条候选路径（play / scheduleAudio / pushOutputs）各打一行。
+    static let pauseDiagEnabled =
+        ProcessInfo.processInfo.environment["MP_PAUSE_TEST"] != nil
 
     /// 只在 MP_TRACE=1 时输出的追踪行（dev-only）。
     static func trace(_ message: String) {
@@ -2307,6 +2427,77 @@ final class PlaybackEngine {
         if Date().timeIntervalSinceReferenceDate - audioStallWatchdogStart > 3 {
             clock.hasAudio = false
             audioStallWatchdogStart = 0
+        }
+    }
+
+    // MARK: - 恢复播放兜底
+
+    private var resumeStallSince: TimeInterval = 0
+    private var resumeStallClock = -1.0
+    private var resumeRecoveryStage = 0
+
+    /// 「已进入播放态但时钟一动不动」的兜底网。
+    ///
+    /// 为什么必须有它：音频是主时钟，而「音频节点没在真渲染」的唯一表现就是
+    /// `renderedSeconds()` 返回 nil —— 此时 `AVSyncClock.currentTime()` 冻结在 lastTime，
+    /// 渲染侧的上屏条件是 `candidate.pts <= now + tol`，时钟不动就永远不成立。
+    /// 于是画面、进度条、解码线程（帧队列灌满 → demux 阻塞）会一起停死：
+    /// 用户看到的就是「暂停太久回来点播放，一点反应都没有」。
+    ///
+    /// 现有代码里所有起播动作都是**一次性**的（play / scheduleAudio / pushOutputs
+    /// 各试一次，失败就再没人管），所以必须有一条按「时钟有没有推进」判定的兜底。
+    /// 三层递进，前一层无效才升级：
+    ///   1. >1.5s → 再 play 一次（引擎活着、只是节点没跑）
+    ///   2. >3.0s → 整条重建音频栈（引擎假活 / 设备切换后底层已停）
+    ///   3. >6.0s → 放弃音频时钟回落墙上时钟（宁可暂时无声，也不能画面冻死）
+    private func resumeStallWatchdog() {
+        // dev-only 反向开关：`MP_NO_RESUME_GUARD=1` 关掉兜底，用来复现「修复前」的
+        // 永久冻结（画面冻住、进度条不动、点播放毫无反应），验证兜底确实是它在兜。
+        if ProcessInfo.processInfo.environment["MP_NO_RESUME_GUARD"] != nil { return }
+        guard state == .playing, clock.hasAudio, !isCaptureMode else {
+            resumeStallSince = 0
+            resumeStallClock = -1
+            resumeRecoveryStage = 0
+            return
+        }
+        let now = Date().timeIntervalSinceReferenceDate
+        let t = currentTime
+
+        if abs(t - resumeStallClock) > 0.001 {
+            resumeStallClock = t
+            resumeStallSince = now
+            if resumeRecoveryStage > 0 {
+                Self.log("恢复兜底成功：时钟已重新推进（阶段 \(resumeRecoveryStage) → "
+                         + String(format: "%.2f", t) + "s）")
+            }
+            resumeRecoveryStage = 0
+            return
+        }
+        if resumeStallSince == 0 { resumeStallSince = now; return }
+
+        let stalled = now - resumeStallSince
+        switch resumeRecoveryStage {
+        case 0 where stalled > 1.5:
+            resumeRecoveryStage = 1
+            Self.log("时钟停滞 " + String(format: "%.1f", stalled) + "s，补一次音频起播 — "
+                     + (audioOutput?.debugStateText ?? "无"))
+            audioOutput?.play()
+        case 1 where stalled > 3.0:
+            resumeRecoveryStage = 2
+            Self.log("时钟停滞 " + String(format: "%.1f", stalled) + "s，强制重建音频栈")
+            audioOutput?.restartForResume()
+        case 2 where stalled > 6.0:
+            resumeRecoveryStage = 3
+            // 先抓冻结值再切：`reset` 会把墙钟锚点钉在这个值上，
+            // 否则 currentTime() 会按「打开时的 0」重算，画面直接跳回片头。
+            let frozen = t
+            clock.hasAudio = false
+            clock.reset(to: frozen)
+            clock.start()
+            Self.log("时钟停滞 " + String(format: "%.1f", stalled) + "s，放弃音频时钟改走墙钟"
+                     + String(format: "（锚定 %.2fs）", frozen))
+        default:
+            break
         }
     }
 

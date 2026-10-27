@@ -65,18 +65,70 @@ final class AudioOutput {
         }
     }
 
+    /// 尝试把引擎拉起来。已经活着就直接成功。
+    ///
+    /// 为什么单独抽出来：`handleConfigurationChange` 里 `engine.start()` 失败会把
+    /// `engineRunning` 置 false，而 `play()` 原来只有一句 `guard engineRunning`——
+    /// 于是一次失败（休眠唤醒时设备还没就绪就是这样）就让**本次会话永久静音**，
+    /// 且 `renderedSeconds()` 永远返回 nil，音频主时钟随之冻结，画面跟着冻死。
+    /// 起播是用户显式意图，这里必须允许重试。
+    @discardableResult
+    func startEngineIfNeeded() -> Bool {
+        if engineRunning { return true }
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.prepare()
+        // dev-only：MP_FORCE_AUDIO_FAIL=1 模拟「唤醒后设备不可用」——engine.start() 抛错。
+        if ProcessInfo.processInfo.environment["MP_FORCE_AUDIO_FAIL"] != nil {
+            engineRunning = false
+            return false
+        }
+        do {
+            try engine.start()
+            engineRunning = true
+            return true
+        } catch {
+            engineRunning = false
+            return false
+        }
+    }
+
     /// 音频硬件配置变更回调（设备重连、休眠唤醒等）
     var onConfigurationChange: (() -> Void)?
 
     func handleConfigurationChange() {
         guard engineRunning else { return }
         // 重新连一次，然后重启引擎；已排队的 buffer 会丢，播放器会自然重新缓冲。
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.prepare()
-        do { try engine.start() } catch {
+        engineRunning = false           // 让 startEngineIfNeeded 走完整的重建路径
+        let ok = startEngineIfNeeded()
+        if !ok { Self.logLine("音频引擎重建失败，等下次起播时重试") }
+        onConfigurationChange?()
+    }
+
+    /// 恢复播放时的兜底：引擎「假活」或节点被系统打断后，`play()` 是空操作。
+    ///
+    /// 判据来自播放器侧：已经进入播放态、`wantPlaying` 为真，但音频时钟连续若干秒
+    /// 一动不动。这时唯一还可能出问题的就是音频栈本身，所以整条重建：
+    /// 停引擎 → 重新连接 → 启动 → play，最后通知上层重算锚点
+    ///（buffer 已丢，锚点不重算会把时钟带到错误的位置）。
+    func restartForResume() {
+        if engineRunning {
+            if player.isPlaying { player.stop() }
+            engine.stop()
             engineRunning = false
         }
+        guard startEngineIfNeeded() else {
+            Self.logLine("恢复失败：引擎仍无法启动")
+            return
+        }
+        // 这里**不**调 player.play()：重启后队列里一个 buffer 都没有，
+        // 空 buffer 起播会让 playerTime 空转、把音频时钟带飞（见 applySeek 的注释）。
+        // 交给音频线程排入第一块后由 scheduleAudio 唤醒。
+        Self.logLine("已强制重建音频栈，等待音频线程重新排入 buffer")
         onConfigurationChange?()
+    }
+
+    private static func logLine(_ message: String) {
+        FileHandle.standardError.write(Data("[AudioOutput] \(message)\n".utf8))
     }
 
     func teardown() {
@@ -95,8 +147,12 @@ final class AudioOutput {
 
     /// 开始播放。因为 AVAudioPlayerNode 在没有已排队 buffer 时不会推进 playerTime，
     /// 所以这里只负责「开始渲染」，什么时候有声音由 schedule 决定。
+    ///
+    /// 注意 `startEngineIfNeeded()`：引擎可能因为一次休眠唤醒/设备切换失败而停在
+    /// engineRunning == false，此时直接 return 会让本次会话再也出不了声，
+    /// 而音频是主时钟 —— 不出声就等于把画面一起冻住。
     func play() {
-        guard engineRunning else { return }
+        guard startEngineIfNeeded() else { return }
         if !player.isPlaying { player.play() }
     }
 
@@ -172,6 +228,17 @@ final class AudioOutput {
     }
 
     // MARK: - 时钟
+
+    /// dev-only 诊断：把「player 到底有没有在真渲染」这件事一次说清。
+    ///
+    /// 暂停→恢复卡死的根因只可能落在这三个值里：引擎是否还活着（engineRunning）、
+    /// 节点是否真的在跑（player.isPlaying）、硬件时钟是否可读（renderedSeconds）。
+    /// 排查时缺任何一个都只能靠猜，所以给暂停自检留一个聚合成一行的读数。
+    var debugStateText: String {
+        let rendered = renderedSeconds().map { String(format: "%.3f", $0) } ?? "nil"
+        return "engine=\(engineRunning ? "run" : "STOP") "
+             + "player=\(player.isPlaying ? "play" : "PAUSE") rendered=\(rendered)"
+    }
 
     /// 自本节点最近一次 play() 起已经渲染的秒数。
     /// 节点没有在播放时返回 nil —— 调用方据此判断「音频时钟当前不可用」。

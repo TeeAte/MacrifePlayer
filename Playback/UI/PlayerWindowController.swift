@@ -81,6 +81,22 @@ final class PlayerWindowController: NSObject, NSWindowDelegate {
         //    **让开底部控制条**（这条是 required 约束）。440 高时扣掉控制条只剩
         //    342pt，面板下沿会被裁掉两三行读数。600 高时可用约 502pt，够放。
         window.minSize = NSSize(width: 900, height: 600)
+
+        // ⚠️ 这一行是「每次关窗口都被判崩溃」的根因修复，别删。
+        //
+        // NSWindow 用 `init(contentRect:styleMask:backing:defer:)` **代码创建**时，
+        // `isReleasedWhenClosed` 默认是 **true** —— 关窗时 AppKit 会再发一次 `release`。
+        // 但 Swift/ARC 这边 `window` 是个强引用，本来就持有一份；多出来的这次 release
+        // 直接把引用计数打到 0，窗口在关窗的那一刻就销毁了，而 `self.window` 仍是野指针。
+        //
+        // 之后 `applicationWillTerminate` → `container.closeCurrent()` → `onCurrentURLChanged`
+        // → `self.window.title = …` 再去 retain 它 —— EXC_BAD_ACCESS，栈顶 `objc_retain`。
+        // 用僵尸对象复跑能直接读到证词：
+        //     *** -[NSKVONotifying_NSWindow retain]: message sent to deallocated instance 0x…
+        //
+        // ARC 下窗口的生命周期必须完全交给 Swift（谁持有谁释放），AppKit 不能再插手。
+        window.isReleasedWhenClosed = false
+
         window.contentView = container
         window.delegate = self
         window.setFrameAutosaveName("MPMainWindow")

@@ -71,6 +71,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var windowController: PlayerWindowController?
 
+    // MARK: - 打开文稿（LaunchServices `odoc` 事件）的缓冲
+    //
+    // 冷启动时 `odoc` 可能早于 `createMainWindow()` 到达，那会儿还没有容器可接，
+    // 所以先攒在这里，等窗口就绪后由 `drainPendingOpenURLs()` 统一取用。
+    private var pendingOpenURLs: [URL] = []
+    /// 窗口建好、可以接文件了吗。为 false 时收到的 open 事件一律进缓冲。
+    private var isReadyForOpen = false
+
     // 菜单项需要被动态刷新，所以留住引用而不是每次去找
     private var recentMenu: NSMenu?
     private var audioTrackMenu: NSMenu?
@@ -156,6 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installCaptureGoIfRequested()
         installCaptureDumpIfRequested()
         installFrameDumpIfRequested()
+        installAutoCloseIfRequested()
+
+        // 窗口已就绪 → 把启动阶段 LS 投递过来的文件放进去。
+        // 位置很关键：必须排在 `createMainWindow()` 之后（这一步要 `windowController` 非 nil），
+        // 又要在 `app.run()` 开始跑事件循环之前 —— 否则第一封 `odoc` 会在没人接的情况下丢掉。
+        drainPendingOpenURLs()
     }
 
     // MARK: - dev：控件 frame 快照（MP_DUMP_FRAMES）
@@ -182,6 +196,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                       + container.statsPanelFramesText() + "\n\n"
                       + container.overlayFramesText() + "\n\n"
                       + container.overlayAppearanceText() + "\n")
+        }
+    }
+
+    // MARK: - dev：自动关窗（MP_AUTO_CLOSE_WINDOW）
+
+    /// `MP_AUTO_CLOSE_WINDOW=<秒>`：启动 N 秒后**模拟点红点关窗**（`performClose:`）。
+    ///
+    /// 为什么需要它：从「用户点关闭」到「applicationWillTerminate」这条路径
+    /// **没法用 AppleScript 复现** —— 给别的进程投键盘/鼠标事件要「辅助功能」权限，
+    /// 而 CI / 无头环境下拿不到。可这条路径恰恰是最容易出事的一段：
+    /// 关窗时 AppKit 会做一遍自己的收尾，退出时 AppDelegate 又会在**窗口可能已经拆掉**
+    /// 的状态下再跑一次清理。2026-10-26/27 那 8 份崩溃报告（栈顶 `objc_retain`，
+    /// 往下是 `applicationWillTerminate` → `closeCurrent` → 设窗口标题）全是这一段。
+    ///
+    /// 不设这个变量时整段代码不执行 —— 正常启动路径零影响。
+    private func installAutoCloseIfRequested() {
+        guard let raw = DevFlag.value("MP_AUTO_CLOSE_WINDOW", "--auto-close-window"),
+              let delay = Double(raw) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let window = self?.windowController?.window else { return }
+            self?.emit("[AUTO-CLOSE] performClose: 模拟用户点关闭按钮（延迟 \(delay)s）\n")
+            window.performClose(nil)
         }
     }
 
@@ -607,7 +643,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        container?.closeCurrent()
+        // 这里**不能**再走 `container.closeCurrent()`。三条理由，一条比一条硬：
+        //
+        //   1. 走到这儿时，清理通常已经做过一遍了：点红点关窗 → `PlayerWindowController
+        //      .windowWillClose` 里已经 `closeCurrent()` 过（引擎停了、进度存了）。
+        //   2. `closeCurrent()` 会一路 `onCurrentURLChanged?(nil)` → 设窗口标题 → 动控制条，
+        //      也就是**在退出时做 UI 工作**。Cmd+Q 还好，关窗路径下窗口已经拆到一半，
+        //      给半个视图树发消息是自找麻烦。
+        //   3. 真发生过：窗口如果已经被释放（`isReleasedWhenClosed` 那个坑，已在
+        //      `PlayerWindowController.init` 里修掉），这一步就是对着野指针 retain，
+        //      EXC_BAD_ACCESS。2026-10-26/27 一共 8 份崩溃报告，栈完全一致。
+        //
+        // 退出只需要「进度落盘 + 停引擎 + 清帧」这三件事，用专用入口。
+        container?.shutdownForTermination()
     }
 
     // MARK: - dev：字幕切轨 / 外挂加载 / 定位的无 GUI 入口
@@ -668,6 +716,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.refreshSubtitleTrackMenu()
         }
+    }
+
+    // MARK: - 打开文稿（LaunchServices `odoc` AppleEvent）
+
+    /// Finder 双击 / 拖到 Dock 图标 / 「打开方式」/ 启动器里的 `open -a` 都走这里。
+    ///
+    /// ── 「打不开 mp4」那条 bug 的根因就在这里 ──
+    ///
+    /// `NSApplicationDelegate` 的这两个 open 方法都是 **optional**，没有实现时
+    /// NSApplication 对 `odoc` AppleEvent 一律回 `errAEEventNotHandled`，
+    /// Finder 于是弹「『Macrife Player』打不开格式为『Video Media File』的文件」。
+    ///
+    /// 这句话极易被读成「Info.plist 声明错了」——**不是**。注册侧本来是好的：
+    /// `lsregister -dump` 里 claim `Video Media File` 的 `bindings` 含 `.mp4`、
+    /// 同一 bundle 的 `claimed UTIs` 含 `public.mpeg-4`，`open -a` 也能把进程拉起来。
+    /// 坏的只是**接收侧**：没人接这个事件，文件就永远进不了播放器。
+    ///
+    /// 时序：冷启动时 `odoc` 可能早于 `applicationDidFinishLaunching` 建窗口那一步，
+    /// 所以先入 `pendingOpenURLs`；运行中拖文件进来则直接开 —— 那时窗口一定已经在。
+    func application(_ application: NSApplication, open urls: [URL]) {
+        acceptOpenURLs(urls)
+    }
+
+    /// 老式 `openFile:` 通道。少数第三方启动器 / 早期 API 路径会用它，
+    /// 与上面那个共用一套缓冲。返回 `true` = 「我接了，不要回 not handled」。
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        acceptOpenURLs([URL(fileURLWithPath: filename)])
+        return true
+    }
+
+    private func acceptOpenURLs(_ urls: [URL]) {
+        // 目录不接：Info.plist 里没有「文件夹」这类声明，混进来只会让引擎报无意义的错。
+        let files = urls.filter { !$0.hasDirectoryPath }
+        guard !files.isEmpty else { return }
+
+        guard isReadyForOpen, let wc = windowController else {
+            // 去重：冷启动时同一次拖拽可能同时走 `openURLs:` 与 `openFile:`，
+            // 两条路都缓冲会让同一个文件进两次。
+            for url in files where !pendingOpenURLs.contains(url) {
+                pendingOpenURLs.append(url)
+            }
+            return
+        }
+        // 多选拖拽直接进播放列表 —— 与「文件 → 打开视频…」的多选行为一致。
+        wc.openVideos(files)
+    }
+
+    /// 窗口就绪后调用一次。
+    ///
+    /// 与 `openLaunchFileIfNeeded()` 的分工：那个只认 `MP_OPEN_FILE` 环境变量与 argv，
+    /// 而 LS 投递的文件**不进 argv**（走 AppleEvent），所以正常不会打架。
+    /// 万一撞上（人肉 `open -n … --args x.mp4`），以 LS 的为准 —— 那是用户显式的点击意图。
+    private func drainPendingOpenURLs() {
+        isReadyForOpen = true
+        guard !pendingOpenURLs.isEmpty, let wc = windowController else { return }
+        let files = pendingOpenURLs
+        pendingOpenURLs.removeAll()
+        wc.openVideos(files)
     }
 
     // MARK: - createMainWindow（观测方法）
