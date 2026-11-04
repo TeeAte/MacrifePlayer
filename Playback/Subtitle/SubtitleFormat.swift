@@ -225,10 +225,47 @@ enum SubtitleFormat {
 
         """
         for c in cues {
-            let body = escapeForASS(c.text)
-            out += "Dialogue: 0,\(assTime(c.start)),\(assTime(c.end)),Default,,0,0,0,,\(body)\n"
+            // SRT 的 {\anN} 定位标签要先摘出来：它会被转成真正的 ASS override
+            //（见 extractSRTAlignment），剩下的花括号才走转义。
+            let (rawBody, alignment) = extractSRTAlignment(c.text)
+            let body = escapeForASS(rawBody)
+            let alignTag = alignment.map { "{\\an\($0)}" } ?? ""
+            out += "Dialogue: 0,\(assTime(c.start)),\(assTime(c.end)),Default,,0,0,0,,\(alignTag)\(body)\n"
         }
         return out
+    }
+
+    /// 从 SRT 正文里摘出 `{\anN}`（N = 1…9，ASS 的 numpad 对齐）定位标签。
+    ///
+    /// ┌ 为什么必须特殊处理
+    /// │ 网上下载的中文字幕（尤其字幕站导出的 SRT）几乎每行都带 `{\an8}`，
+    /// │ 含义是「顶部居中」。mpv / VLC / PotPlayer 都认这个约定，把它当位置覆盖；
+    /// │ 如果走普通的花括号转义（`{` → `\{`），libass 0.17 对 `\{` **不做反转义**，
+    /// │ 屏幕上会把 `{\an8}` 原样打印在每行字幕开头 —— 看起来就是「字幕全是乱码 /
+    /// │ 加载错误」。
+    /// │
+    /// │ 处理方式与主流播放器一致：整个文件里取**最后一次出现的** an 值
+    /// │（真实文件里各行基本一致，取后者与 mpv 行为对齐），拼到 Dialogue 正文
+    /// │ 开头作为 override block；正文里的标签本体删掉。
+    /// └
+    private static func extractSRTAlignment(_ text: String) -> (body: String, alignment: Int?) {
+        guard let re = try? NSRegularExpression(pattern: #"\{\s*\\an([1-9])\s*\}"#) else {
+            return (text, nil)
+        }
+        let ns = text as NSString
+        let matches = re.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return (text, nil) }
+
+        var alignment: Int? = nil
+        for m in matches {
+            if let g = Range(m.range(at: 1), in: text), let v = Int(text[g]) {
+                alignment = v
+            }
+        }
+        let body = re.stringByReplacingMatches(in: text,
+                                               range: NSRange(location: 0, length: ns.length),
+                                               withTemplate: "")
+        return (body, alignment)
     }
 
     /// 换行 → `\N`；`{` `}` → 转义（否则内容会被当成 override tag 吃掉）。

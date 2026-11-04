@@ -719,7 +719,27 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         open(url: urls[index])
     }
 
+    /// 同一文件的重复打开请求去重（argv + Cocoa odoc 双投递）。
+    ///
+    /// 直接执行 .app 二进制并带文件参数时，文件会走**两条路**进来：
+    /// `openLaunchFileIfNeeded()` 读 argv 开一次，Cocoa 把 argv 里的文档再投递一次
+    /// `odoc` AppleEvent（`application(_:open:)`）开第二次 —— 实测每次带文件启动
+    /// 「已打开」必然打两遍，字幕/音轨管线跟着重建两遍，起播也慢一倍。
+    /// `env MP_OPEN_FILE` 启动只有一次，可以对照验证。
+    /// 窗口期 2 秒只吞启动碰撞；正常「点最近打开重播同一部」间隔远大于这个值，不受影响。
+    private var lastOpenRequestURL: URL?
+    private var lastOpenRequestTime: TimeInterval = 0
+
     func open(url: URL) {
+        let now = Date().timeIntervalSinceReferenceDate
+        if lastOpenRequestURL?.standardizedFileURL == url.standardizedFileURL,
+           now - lastOpenRequestTime < 2.0 {
+            FileHandle.standardError.write(Data(
+                "[PlayerContainer] 丢弃重复打开请求（2s 窗口内）: \(url.lastPathComponent)\n".utf8))
+            return
+        }
+        lastOpenRequestURL = url
+        lastOpenRequestTime = now
         saveCurrentProgressIfNeeded()
         let isSwitchingMedia = (engine.url != nil)
         if engine.isPlaying {

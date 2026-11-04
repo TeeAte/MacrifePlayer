@@ -733,7 +733,18 @@ final class PlaybackEngine {
             let effectiveNow = clock.currentTime()
 
             if let candidate = pendingFrame {
-                if candidate.pts <= effectiveNow + earlyTolerance {
+                // 首帧必须无条件上屏并重锚时钟。
+                //
+                // 起播 + 恢复进度（open → seek 到上次位置）存在竞态：音频可能先排入
+                // seek 之前的缓冲又被打断，时钟可能冻在 target、而首批解码出的帧 pts
+                // 略微超前于冻结值。此时 `candidate.pts <= now + tol` **永远不成立**
+                // —— 画面不出 → 帧队列灌满 → demux 阻塞 → 音频断供 → 时钟更动不了，
+                // 整条管线死锁；而下面两处「时钟拉齐」自愈都被 `loggedFirstFrame`
+                // 门住，首帧恰恰进不去。实测表现：上屏 0 帧、时钟停滞 → 墙钟回落到
+                // 错误锚点，进度条疯走（即「音画不同步」的一条实锤路径）。
+                // 首帧本来就是时钟基准（见下面 reset(to:)），直接上屏即可。
+                let isFirstFrame = !loggedFirstFrame
+                if candidate.pts <= effectiveNow + earlyTolerance || isFirstFrame {
                     pendingFrame = nil
                     let prevPTS = lastPresentedPTS
                     lastPresentedPTS = candidate.pts
@@ -1985,12 +1996,43 @@ final class PlaybackEngine {
 
     // MARK: - 状态同步
 
+    /// 播放期间持有系统「用户活跃」断言，防止系统闲置休眠与显示器休眠。
+    /// 生命周期：进入 .playing 持有，离开（暂停/停止/结束/释放）即释放。
+    private final class KeepAwakeAssertion {
+        private var activity: NSObjectProtocol?
+
+        func begin(reason: String) {
+            guard activity == nil else { return }
+            activity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleSystemSleepDisabled, .idleDisplaySleepDisabled],
+                reason: reason)
+            PlaybackEngine.log("保活：已持有电源断言（\(reason)）")
+        }
+
+        func end() {
+            guard let a = activity else { return }
+            ProcessInfo.processInfo.endActivity(a)
+            activity = nil
+            PlaybackEngine.log("保活：已释放电源断言")
+        }
+
+        deinit { end() }
+    }
+
+    private let keepAwake = KeepAwakeAssertion()
+
     private func setState(_ new: PlaybackState) {
         stateLock.lock()
         if _state == new { stateLock.unlock(); return }
         Self.log("状态变迁: \(_state) -> \(new)")
         _state = new
         stateLock.unlock()
+        // 保活跟随播放状态：只有真正在播才阻止休眠。
+        if new == .playing {
+            keepAwake.begin(reason: "MacrifePlayer 播放中")
+        } else {
+            keepAwake.end()
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.playbackEngine(self, didChange: new)
@@ -2481,7 +2523,13 @@ final class PlaybackEngine {
             resumeRecoveryStage = 1
             Self.log("时钟停滞 " + String(format: "%.1f", stalled) + "s，补一次音频起播 — "
                      + (audioOutput?.debugStateText ?? "无"))
-            audioOutput?.play()
+            // 没有已排入 buffer 时不能 play()：AVAudioPlayerNode 在空队列上起播
+            // 会让 playerTime 空转狂奔（实测 1.6s 跑出 11.4s），把音频主时钟直接带飞，
+            // 随后被 scheduledAudioEnd 夹住冻结 —— 兜底反而制造了停滞。
+            anchorLock.lock()
+            let hasBuffers = audioBuffersScheduled
+            anchorLock.unlock()
+            if hasBuffers { audioOutput?.play() }
         case 1 where stalled > 3.0:
             resumeRecoveryStage = 2
             Self.log("时钟停滞 " + String(format: "%.1f", stalled) + "s，强制重建音频栈")
