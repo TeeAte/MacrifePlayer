@@ -156,17 +156,53 @@ enum HDRToneMappingMode: String, CaseIterable {
     }
 }
 
-/// 当前支持的补帧模型；顺序同时用于配置面板。
+/// 补帧后端与延迟策略独立。Apple管理其系统模型，RIFE可选择权重版本。
+enum InterpolationBackend: String, CaseIterable {
+    case rifeCoreML
+    case appleVideoToolbox
+    case metalFX
+    case rifeMetalFast
+
+    var title: String {
+        switch self {
+        case .rifeCoreML: return "RIFE（Core ML）"
+        case .appleVideoToolbox: return "Apple 系统补帧（VideoToolbox）"
+        case .metalFX: return "MetalFX 补帧（实验性）"
+        case .rifeMetalFast: return "RifeMetal Fast（Metal · RIFE 4.25）"
+        }
+    }
+    var shortTitle: String {
+        switch self {
+        case .rifeCoreML: return "RIFE"
+        case .appleVideoToolbox: return "Apple"
+        case .metalFX: return "MetalFX"
+        case .rifeMetalFast: return "RifeMetal Fast"
+        }
+    }
+}
+
+enum FlowInferenceResolution: String, CaseIterable {
+    case p576, p720, p1080, p1440
+    var height: Int {
+        switch self {
+        case .p576: return 576
+        case .p720: return 720
+        case .p1080: return 1080
+        case .p1440: return 1440
+        }
+    }
+    var title: String { "\(height)p" }
+}
+
+/// 当前支持的RIFE权重；后端不出现在模型列表中。
 enum RIFEModelChoice: String, CaseIterable {
     case v426
     case heavy426
-    case appleLowLatency
 
     var title: String {
         switch self {
         case .v426: return L10n.t("rife_model_426_high_quality")
         case .heavy426: return L10n.t("rife_model_426_heavy")
-        case .appleLowLatency: return "Apple 低延迟 (720p AI · 原帧保真)"
         }
     }
 
@@ -174,7 +210,6 @@ enum RIFEModelChoice: String, CaseIterable {
         switch self {
         case .v426: return "RIFE v4.26 (新一代高画质 · 通用物理光流)"
         case .heavy426: return "RIFE v4.26 Heavy (大位移重度光流 · 动作大片)"
-        case .appleLowLatency: return "Apple 低延迟 (720p 中间帧 · 原始帧保真 · macOS 26+)"
         }
     }
 
@@ -182,12 +217,22 @@ enum RIFEModelChoice: String, CaseIterable {
         switch self {
         case .v426: return L10n.t("rife_full_mode")
         case .heavy426: return L10n.t("rife_heavy_model")
-        case .appleLowLatency: return "Apple 原生低延迟"
         }
     }
 
     var modelFamilyName: String {
-        self == .appleLowLatency ? "Apple" : "RIFE"
+        "RIFE"
+    }
+
+    var availableComputePrecisions: [RIFEComputePrecision] { [.fp16] }
+
+    func compiledVariant(resolution: FlowInferenceResolution) -> String? {
+        switch (self, resolution) {
+        case (.v426, .p720): return "rife_426_fp16_blocks_extended"
+        case (.v426, _): return "rife_426_fp16_\(resolution.height)p_blocks"
+        case (.heavy426, .p1440): return nil
+        case (.heavy426, _): return "rife_426_heavy_fp16_\(resolution.height)p_blocks"
+        }
     }
 }
 
@@ -275,6 +320,8 @@ final class PlaybackSettings {
         case rifeRateMode = "macrife.rifeRateMode"
         case rifeQualityMode = "macrife.rifeQualityMode"
         case rifeModel = "macrife.rifeModel"
+        case interpolationBackend = "macrife.interpolationBackend"
+        case interpolationFlowResolution = "macrife.interpolationFlowResolution"
         case rifeResolution = "macrife.rifeResolution"
         case rifeWorkerCount = "macrife.rifeWorkerCount"
         case rifeTransitionDetection = "macrife.rifeTransitionDetection"
@@ -318,6 +365,7 @@ final class PlaybackSettings {
         var affectsPipeline: Bool {
             switch self {
             case .rifeQualityMode, .rifeModel, .rifeResolution,
+                 .interpolationBackend, .interpolationFlowResolution,
                  .rifeWorkerCount, .rifeTransitionDetection, .rifeSceneThreshold,
                  .rifeStaticFrameSkip, .rifeStaticThreshold, .rifeScaleFactor,
                  .rifeCustomTargetFps, .rifePrecision, .rifeQueueDepth,
@@ -340,6 +388,10 @@ final class PlaybackSettings {
                 return MPText.t("补帧质量", "Interpolation quality")
             case .rifeModel:
                 return MPText.t("RIFE 模型", "RIFE model")
+            case .interpolationBackend:
+                return MPText.t("补帧后端", "Interpolation backend")
+            case .interpolationFlowResolution:
+                return MPText.t("光流推理分辨率", "Flow inference resolution")
             case .rifeResolution:
                 return MPText.t("模型分辨率", "Model resolution")
             case .rifeWorkerCount:
@@ -404,6 +456,13 @@ final class PlaybackSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // 保留旧Apple选择，迁移到独立后端；RIFE权重作为独立的回退配置。
+        if defaults.string(forKey: Key.rifeModel.rawValue) == "appleLowLatency" {
+            if defaults.object(forKey: Key.interpolationBackend.rawValue) == nil {
+                defaults.set(InterpolationBackend.appleVideoToolbox.rawValue, forKey: Key.interpolationBackend.rawValue)
+            }
+            defaults.set(RIFEModelChoice.v426.rawValue, forKey: Key.rifeModel.rawValue)
+        }
         // 已移除模型的旧偏好迁移到默认模型，避免重启后仍保留失效选择。
         if let raw = defaults.string(forKey: Key.rifeModel.rawValue),
            RIFEModelChoice(rawValue: raw) == nil {
@@ -429,9 +488,84 @@ final class PlaybackSettings {
         set { setEnum(Key.rifeModel, newValue) }
     }
 
+    var interpolationBackend: InterpolationBackend {
+        get {
+            if defaults.object(forKey: Key.interpolationBackend.rawValue) == nil,
+               defaults.string(forKey: Key.rifeModel.rawValue) == "appleLowLatency" { return .appleVideoToolbox }
+            return enumValue(Key.interpolationBackend, default: .rifeCoreML)
+        }
+        set { setEnum(Key.interpolationBackend, newValue) }
+    }
+
+    private func flowProfileKey(backend: InterpolationBackend) -> String {
+        let profile: String
+        switch backend {
+        case .rifeCoreML: profile = "rife.\(rifeModel.rawValue)"
+        case .appleVideoToolbox: profile = "apple"
+        case .metalFX: profile = "metalfx"
+        case .rifeMetalFast: profile = "rifemetal.fast"
+        }
+        return "macrife.interpolation.\(profile).flowResolution"
+    }
+
+    func flowResolution(for backend: InterpolationBackend) -> FlowInferenceResolution {
+        if let raw = defaults.string(forKey: flowProfileKey(backend: backend)),
+           let value = FlowInferenceResolution(rawValue: raw),
+           !(backend == .rifeCoreML && rifeModel == .heavy426 && value == .p1440) { return value }
+        // Preserve the previous working inference sizes; old UI scale controls
+        // did not select CoreML variants and are not treated as measured settings.
+        if backend == .rifeMetalFast { return .p1080 }
+        return backend == .rifeCoreML ? .p576 : .p720
+    }
+
+    var interpolationFlowResolution: FlowInferenceResolution {
+        get { flowResolution(for: interpolationBackend) }
+        set {
+            guard availableFlowResolutions.contains(newValue) else { return }
+            defaults.set(newValue.rawValue, forKey: flowProfileKey(backend: interpolationBackend))
+            notify(.interpolationFlowResolution)
+        }
+    }
+
+    var availableFlowResolutions: [FlowInferenceResolution] {
+        if interpolationBackend == .rifeCoreML, rifeModel == .heavy426 { return [.p576, .p720, .p1080] }
+        return FlowInferenceResolution.allCases
+    }
+
+    /// Current compiled RIFE packages have FP16 tensor IO only. VideoToolbox
+    /// owns its internal precision. Hide numeric selection until a backend
+    /// actually offers multiple supported precisions.
+    var availableComputePrecisions: [RIFEComputePrecision] {
+        interpolationBackend == .rifeCoreML ? rifeModel.availableComputePrecisions : []
+    }
+
+    var computePrecisionDescription: String {
+        if interpolationBackend == .rifeMetalFast { return "FP16（RifeMetal Fast 固定精度）" }
+        return interpolationBackend == .rifeCoreML ? "FP16 模型（当前模型包）" : "系统管理（不公开 FP16 / FP32 控制）"
+    }
+
     var rifeResolution: RIFEModelResolution {
-        get { enumValue(Key.rifeResolution, default: RIFEModelResolution.userSelectableFallback) }
-        set { setEnum(Key.rifeResolution, newValue) }
+        get {
+            switch flowResolution(for: .rifeCoreML) {
+            case .p576: return .sweet
+            case .p720: return .normal
+            case .p1080: return .quality
+            case .p1440: return .top
+            }
+        }
+        set {
+            let resolution: FlowInferenceResolution
+            switch newValue {
+            case .sweet: resolution = .p576
+            case .normal: resolution = .p720
+            case .quality: resolution = .p1080
+            case .top: resolution = .p1440
+            }
+            guard rifeModel.compiledVariant(resolution: resolution) != nil else { return }
+            defaults.set(resolution.rawValue, forKey: flowProfileKey(backend: .rifeCoreML))
+            defaults.set(newValue.rawValue, forKey: Key.rifeResolution.rawValue)
+            notify(.rifeResolution)
+        }
     }
 
     /// RIFE 核心数。可选值 4 / 6 / 8 / 10 / 12。默认 8。
@@ -530,8 +664,17 @@ final class PlaybackSettings {
 
     /// 计算精度 (FP16 / FP32)。
     var rifePrecision: RIFEComputePrecision {
-        get { enumValue(Key.rifePrecision, default: .fp16) }
-        set { setEnum(Key.rifePrecision, newValue) }
+        get {
+            let key = "macrife.interpolation.rife.\(rifeModel.rawValue).precision"
+            guard let stored = defaults.string(forKey: key).flatMap(RIFEComputePrecision.init(rawValue:)),
+                  rifeModel.availableComputePrecisions.contains(stored) else { return .fp16 }
+            return stored
+        }
+        set {
+            guard rifeModel.availableComputePrecisions.contains(newValue) else { return }
+            defaults.set(newValue.rawValue, forKey: "macrife.interpolation.rife.\(rifeModel.rawValue).precision")
+            notify(.rifePrecision)
+        }
     }
 
     /// 预缓冲队列深度 (2 / 4 / 8 / 12, 默认 4)。
@@ -622,7 +765,15 @@ final class PlaybackSettings {
         rifeRateMode = .off
         rifeQualityMode = .stable
         rifeModel = .v426
-        rifeResolution = .normal
+        interpolationBackend = .rifeCoreML
+        for model in RIFEModelChoice.allCases {
+            defaults.removeObject(forKey: "macrife.interpolation.rife.\(model.rawValue).flowResolution")
+            defaults.removeObject(forKey: "macrife.interpolation.rife.\(model.rawValue).precision")
+        }
+        defaults.removeObject(forKey: "macrife.interpolation.apple.flowResolution")
+        defaults.removeObject(forKey: "macrife.interpolation.metalfx.flowResolution")
+        defaults.removeObject(forKey: "macrife.interpolation.rifemetal.fast.flowResolution")
+        rifeResolution = .sweet
         rifeWorkerCount = 8
         rifeTransitionDetection = true
         rifeSceneThreshold = 0.30

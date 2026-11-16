@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/cinemore/rife-metal",
+  "revision": "f18852ddb72f5706ddbeb3333b80643a63634222",
+  "archive_sha256": "beb616ad53b5c97b5fdc7a6627d92e7baa8b307baeddcc4541174fe6796c0d38",
+  "weight_file": "Sources/RifeMetal/Resources/rife-v4.25.rmw",
+  "weight_sha256": "ef29a643a76a9202600458a23dddce16919337ef01743d0fbe817684ec990f74",
+  "local_changes": [
+    "Library-only Package.swift; original in Package.upstream.swift",
+    "Copy upstream license and weight attribution into the app resource bundle"
+  ]
+}

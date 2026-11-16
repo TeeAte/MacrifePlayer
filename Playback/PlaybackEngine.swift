@@ -249,6 +249,18 @@ final class PlaybackEngine {
     private var lastPushedPTS: Double? = nil
     private let rifeEngine = RIFEInterpolationEngine()
     private let appleInterpolator = AppleLowLatencyInterpolator()
+    private let metalFXInterpolator = MetalFXCaptureInterpolator()
+    private let rifeMetalInterpolator = RifeMetalFastInterpolator()
+    private var nativeInterpolationSelection: String?
+
+    private func nativeInterpolationSnapshot(for backend: InterpolationBackend)
+        -> (frames: Int, status: String, processingSeconds: Double, active: Bool) {
+        switch backend {
+        case .rifeMetalFast: return rifeMetalInterpolator.snapshot
+        case .metalFX: return metalFXInterpolator.snapshot
+        case .appleVideoToolbox, .rifeCoreML: return appleInterpolator.snapshot
+        }
+    }
     /// 每个编解码上下文一把门闸：视频与音频独立，解码可以并行；
     /// 但同一把门闸保证「同一时刻只有一个线程在动这个 context」——
     /// FFmpeg 帧级线程的 async 锁不变式就靠它（详见 PipelinePrimitives.swift）。
@@ -706,9 +718,10 @@ final class PlaybackEngine {
                 let interval = 1.0 / max(1, target)
                 let newestPTS = max(first.pts, frameQueue.peekLast()?.pts ?? first.pts)
                 let hostTime = CACurrentMediaTime()
-                let appleTiming = appleInterpolator.snapshot
+                let selectedBackend = PlaybackSettings.shared.interpolationBackend
+                let appleTiming = nativeInterpolationSnapshot(for: selectedBackend)
                 let nativeDue: Double?
-                if isInterpolating, PlaybackSettings.shared.rifeModel == .appleLowLatency,
+                if isInterpolating, selectedBackend != .rifeCoreML,
                    appleTiming.active, appleTiming.frames > 0, let latestCapturePTS {
                     nativeDue = CapturePlayoutClock.livePresentationTime(
                         latestPTS: latestCapturePTS, receivedHostTime: latestCaptureHostTime, hostTime: hostTime,
@@ -940,6 +953,9 @@ final class PlaybackEngine {
 
         CoreMLRIFEEngine.shared.reset()
         appleInterpolator.reset()
+        metalFXInterpolator.reset()
+        rifeMetalInterpolator.reset()
+        nativeInterpolationSelection = nil
         // 此时工作线程均已退出，安全关闭音频输出
         audioOutput?.teardown()
 
@@ -1175,7 +1191,7 @@ final class PlaybackEngine {
         // 这里先把 YUY2 在 GPU 上解包成 NV12，之后就能正常进补帧链路 ——
         // 直接喂打包缓冲会拿到错误输入甚至失败。
         var effectiveFrame = f
-        if isPacked422, needsInterpolation, settings.rifeModel != .appleLowLatency {
+        if isPacked422, needsInterpolation, settings.interpolationBackend == .rifeCoreML {
             if let nv12 = CoreMLRIFEEngine.shared.convertPacked422ToNV12(f.pixelBuffer) {
                 effectiveFrame = DecodedVideoFrame(pixelBuffer: nv12, pts: f.pts,
                                                   isBT709: f.isBT709,
@@ -1206,21 +1222,51 @@ final class PlaybackEngine {
             }
         }
 
+        // Do not join a cached pair across an off/on, backend or cadence switch.
+        let backend = settings.interpolationBackend
+        let selection = "\(backend.rawValue)|\(needsInterpolation)|\(settings.rifeRateMode.rawValue)|\(settings.rifeCustomTargetFps)"
+        if nativeInterpolationSelection != selection {
+            appleInterpolator.discardPreviousFrame()
+            metalFXInterpolator.discardPreviousFrame()
+            rifeMetalInterpolator.discardPreviousFrame()
+            nativeInterpolationSelection = selection
+        }
         guard needsInterpolation else {
             pushOutputs([effectiveFrame], generation: gen)
             return
         }
 
-        if settings.rifeModel == .appleLowLatency,
+        if backend == .rifeMetalFast,
+           let frames = rifeMetalInterpolator.interpolate(effectiveFrame,
+                sourceFPS: isCaptureMode ? captureContentFPS : fps,
+                targetFPS: StatsPanelView.targetFrameRate(source: isCaptureMode ? captureContentFPS : fps,
+                                                          mode: settings.rifeRateMode),
+                maxInputHeight: settings.interpolationFlowResolution.height) {
+            pushOutputs(frames, generation: gen)
+            return
+        }
+
+        if backend == .metalFX,
+           let frames = metalFXInterpolator.interpolate(effectiveFrame,
+                sourceFPS: isCaptureMode ? captureContentFPS : fps,
+                targetFPS: StatsPanelView.targetFrameRate(source: isCaptureMode ? captureContentFPS : fps,
+                                                          mode: settings.rifeRateMode),
+                maxInferenceHeight: settings.interpolationFlowResolution.height) {
+            pushOutputs(frames, generation: gen)
+            return
+        }
+
+        if settings.interpolationBackend == .appleVideoToolbox,
            let frames = appleInterpolator.interpolate(effectiveFrame, sourceFPS: isCaptureMode ? captureContentFPS : fps,
                                                        targetFPS: StatsPanelView.targetFrameRate(
-                                                        source: isCaptureMode ? captureContentFPS : fps, mode: settings.rifeRateMode)) {
+                                                        source: isCaptureMode ? captureContentFPS : fps, mode: settings.rifeRateMode),
+                                                       maxInferenceHeight: settings.interpolationFlowResolution.height) {
             pushOutputs(frames, generation: gen)
             return
         }
 
         // 原生处理失败时，打包采集格式也要能进入真实 RIFE 回退链路。
-        if settings.rifeModel == .appleLowLatency, isPacked422 {
+        if settings.interpolationBackend != .rifeCoreML, isPacked422 {
             CoreMLRIFEEngine.shared.prewarmIfNeeded(settings: settings,
                 sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
                 sourceHeight: CVPixelBufferGetHeight(effectiveFrame.pixelBuffer),
@@ -1704,6 +1750,9 @@ final class PlaybackEngine {
         rifeJobQueues.forEach { $0.flush() }
         rifeEngine.reset()
         appleInterpolator.reset()
+        metalFXInterpolator.reset()
+        rifeMetalInterpolator.reset()
+        nativeInterpolationSelection = nil
         CoreMLRIFEEngine.shared.reset()
 
         // 1. 冻结两把门：等在途单次解码结束，之后独占所有 context (此时旧包已清空，毫秒级即可获得)
@@ -1847,6 +1896,9 @@ final class PlaybackEngine {
         rifeReorder.discardPending()
         rifeEngine.reset()
         appleInterpolator.reset()
+        metalFXInterpolator.reset()
+        rifeMetalInterpolator.reset()
+        nativeInterpolationSelection = nil
         CoreMLRIFEEngine.shared.reset()
         frameLock.lock(); pendingFrame = nil; frameLock.unlock()
         anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
@@ -2725,11 +2777,14 @@ final class PlaybackEngine {
         let target = StatsPanelView.targetFrameRate(source: captureContentFPS, mode: s.rifeRateMode)
         c.rifeActive = s.rifeRateMode != .off && (captureLatencyPolicy == nil
             || CaptureLatencyPolicy.requiresInterpolation(sourceFPS: captureContentFPS, targetFPS: target))
-        let appleStats = appleInterpolator.snapshot
-        if s.rifeModel == .appleLowLatency {
+        let appleStats = nativeInterpolationSnapshot(for: s.interpolationBackend)
+        if s.interpolationBackend != .rifeCoreML {
             c.rifeInterpolatedFrames = appleStats.frames
                 + (appleStats.active ? 0 : CoreMLRIFEEngine.shared.totalInterpolatedFrames)
             c.rifeStatusText = appleStats.status
+            if !appleStats.active, CoreMLRIFEEngine.shared.totalInterpolatedFrames > 0 {
+                c.rifeStatusText += " · " + CoreMLRIFEEngine.shared.activeStateText
+            }
         } else if CoreMLRIFEEngine.shared.totalInterpolatedFrames > 0 || !CoreMLRIFEEngine.shared.activeStateText.contains("加载") {
             c.rifeInterpolatedFrames = CoreMLRIFEEngine.shared.totalInterpolatedFrames
             c.rifeStatusText = CoreMLRIFEEngine.shared.activeStateText
@@ -3051,6 +3106,8 @@ final class PlaybackEngine {
                     // Do not interpolate across a 30/60 transition using a stale
                     // previous frame. Keep the warmed native model and counters.
                     appleInterpolator.discardPreviousFrame()
+                    metalFXInterpolator.discardPreviousFrame()
+                    rifeMetalInterpolator.discardPreviousFrame()
                     rifeEngine.reset()
                     Self.log(String(format: "采集内容节奏切换：%.2f fps（采集仍为 %.2f fps）", input.contentFPS, captureFPS))
                 }
@@ -3058,6 +3115,8 @@ final class PlaybackEngine {
                    frame.pts - previous > 3.0 / max(1, captureContentFPS) {
                     rifeEngine.reset()
                     appleInterpolator.discardPreviousFrame()
+                    metalFXInterpolator.discardPreviousFrame()
+                    rifeMetalInterpolator.discardPreviousFrame()
                 }
                 lastCaptureProcessedPTS = frame.pts
                 enqueueFrame(frame)

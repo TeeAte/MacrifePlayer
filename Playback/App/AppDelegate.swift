@@ -610,8 +610,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if raw == "hardware" || raw == "hw" { s.decodeMode = .hardware }
             else if raw == "software" || raw == "sw" { s.decodeMode = .software }
         }
-        if let raw = DevFlag.value("MP_SET_RIFE_MODEL", "--rife-model"), let v = RIFEModelChoice(rawValue: raw) {
-            s.rifeModel = v
+        if let raw = DevFlag.value("MP_SET_INTERPOLATION_BACKEND", "--interpolation-backend"),
+           let backend = InterpolationBackend(rawValue: raw) { s.interpolationBackend = backend }
+        if let raw = DevFlag.value("MP_SET_RIFE_MODEL", "--rife-model") {
+            if raw == "appleLowLatency" { s.interpolationBackend = .appleVideoToolbox }
+            else if let model = RIFEModelChoice(rawValue: raw) { s.rifeModel = model }
         }
         if let raw = env["MP_SET_RIFE_RES"], let v = RIFEModelResolution(rawValue: raw) {
             s.rifeResolution = v
@@ -1100,7 +1103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(configItem)
 
         // 状态项：显示当前模型内核，点击直接唤出配置面板
-        let statusItem = NSMenuItem(title: "当前内核: \(s.rifeModel.title)",
+        let statusItem = NSMenuItem(title: "当前后端: \(s.interpolationBackend.title)",
                                     action: #selector(openRIFEConfigMenuAction(_:)),
                                     keyEquivalent: "")
         statusItem.target = self

@@ -1,5 +1,17 @@
 import Foundation
 
+/// Fit inference to the chosen 16:9 budget without upscaling source pixels.
+/// Both dimensions stay even for NV12. This is independent of queue latency.
+enum InferenceGeometry {
+    static func fit(sourceWidth: Int, sourceHeight: Int, maxHeight: Int) -> (width: Int, height: Int) {
+        guard sourceWidth > 0, sourceHeight > 0 else { return (2, 2) }
+        let cap = Double(max(2, maxHeight))
+        let scale = min(1, min(cap * 16 / 9 / Double(sourceWidth), cap / Double(sourceHeight)))
+        return (max(2, Int(Double(sourceWidth) * scale) / 2 * 2),
+                max(2, Int(Double(sourceHeight) * scale) / 2 * 2))
+    }
+}
+
 /// Manual console-30 mode: keep the first capture tick, then every other
 /// tick on the 60Hz PTS grid. No image sampling, detection window or lookahead.
 /// Using PTS parity (rather than callback count) preserves phase across drops.

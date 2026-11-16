@@ -478,17 +478,18 @@ final class StatsPanelView: NSView {
 
         if s.rifeRateMode != .off {
             let actualFPS = stats.renderFPS > 0 ? String(format: " · 实测 %.1f FPS", stats.renderFPS) : ""
-            let familyName = s.rifeModel == .appleLowLatency && stats.rifeStatusText.contains("回退")
-                ? "RIFE（回退）" : s.rifeModel.modelFamilyName
-            let modeLabel = s.rifeModel == .appleLowLatency ? targetText : s.rifeRateMode.statusTitle
+            let familyName = s.interpolationBackend != .rifeCoreML && stats.rifeStatusText.contains("回退")
+                ? "RIFE（回退）" : s.interpolationBackend.shortTitle
+            let modeLabel = s.interpolationBackend != .rifeCoreML ? targetText : s.rifeRateMode.statusTitle
             lines.append("补帧  \(modeLabel) (\(familyName))  ·  目标 \(targetText)\(actualFPS)")
-            if s.rifeModel == .appleLowLatency {
-                lines.append("模型  Apple 低延迟 · 原始帧保持源画质")
-                lines.append("中间帧  最多 720p AI 生成后恢复源尺寸")
+            if s.interpolationBackend != .rifeCoreML {
+                lines.append("模型  " + s.interpolationBackend.shortTitle + " 系统补帧 · 原始帧保持源画质")
+                if s.interpolationBackend == .metalFX { lines.append("实验  估算光流 / 平面深度 · 性能未验证") }
+                lines.append("推理上限  " + s.interpolationFlowResolution.title + " · 数值精度由系统管理")
                 lines.append("处理  " + stats.rifeStatusText)
             } else {
-                lines.append(String(format: "模型  %@  ·  缩放 %.2fx  ·  %@", s.rifeModel.title, s.rifeScaleFactor, s.rifePrecision.shortTitle))
-                lines.append(String(format: "核心  %d 核  ·  缓冲 %d 帧  ·  质量 %@", s.rifeWorkerCount, s.rifeQueueDepth, s.rifeQualityMode.title))
+                lines.append("模型  " + (s.interpolationBackend == .rifeCoreML ? s.rifeModel.title : "Apple 系统模型") + " · 光流 " + s.interpolationFlowResolution.title)
+                lines.append("精度  " + s.computePrecisionDescription)
                 lines.append(String(format: "保护  转场保护 %@ (%.0f%%)  ·  静帧跳过 %@",
                                     s.rifeTransitionDetection ? "开" : "关",
                                     s.rifeSceneThreshold * 100,
@@ -519,6 +520,8 @@ final class StatsPanelView: NSView {
             }
             if d.container.formatName.contains("采集卡"), !stats.rifeActive {
                 lines.append("状态  输入已达目标帧率 · AI 按需补帧")
+            } else if s.interpolationBackend != .rifeCoreML, stats.rifeInterpolatedFrames == 0 {
+                lines.append("状态  后端尚未产生插帧 · " + stats.rifeStatusText)
             } else if s.metalFX == .spatial || s.anime4k == .on {
                 lines.append("状态  ✅ \(familyName) 补帧 (\(targetText)) + 画质增强 全链路活跃")
             } else {
@@ -526,8 +529,8 @@ final class StatsPanelView: NSView {
             }
         } else {
             lines.append("补帧  关闭（原始帧率直通）")
-            lines.append(String(format: "模型  %@  ·  缩放 %.2fx  ·  %@", s.rifeModel.title, s.rifeScaleFactor, s.rifePrecision.shortTitle))
-            lines.append(String(format: "核心  %d 核  ·  缓冲 %d 帧  ·  质量 %@", s.rifeWorkerCount, s.rifeQueueDepth, s.rifeQualityMode.title))
+            lines.append("模型  " + (s.interpolationBackend == .rifeCoreML ? s.rifeModel.title : s.interpolationBackend.shortTitle + " 系统补帧") + " · 光流 " + s.interpolationFlowResolution.title)
+            lines.append("精度  " + s.computePrecisionDescription)
             lines.append(String(format: "保护  转场保护 %@ (%.0f%%)  ·  静帧跳过 %@",
                                 s.rifeTransitionDetection ? "开" : "关",
                                 s.rifeSceneThreshold * 100,

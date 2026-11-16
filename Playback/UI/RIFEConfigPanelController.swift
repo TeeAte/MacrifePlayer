@@ -65,6 +65,7 @@ final class PanelInfoBadgeView: NSView {
         layer?.borderWidth = 1.0
 
         label.font = .systemFont(ofSize: 11.5, weight: .medium)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 3
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -97,6 +98,10 @@ final class PanelInfoBadgeView: NSView {
     }
 }
 
+private final class InterpolationSettingsDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 // MARK: - 主控制器
 final class RIFEConfigPanelController: NSWindowController {
 
@@ -111,30 +116,18 @@ final class RIFEConfigPanelController: NSWindowController {
     private let customFpsRow = NSStackView()
 
     // 2. AI 模型与计算精度
+    private let backendPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var precisionRow: NSView?
+    private let precisionInfoLabel = NSTextField(labelWithString: "")
+    private let latencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let precisionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelTipBadge = PanelInfoBadgeView()
 
-    // 3. 模型专属高级定制容器
-    private var customCardContainer: NSView?
-    private let customCardTitleLabel = NSTextField(labelWithString: "模型专属高级定制")
-
-    // 3.1 RIFE 专属控件
-    private let rifeCustomStack = NSStackView()
-    private let rifeSmoothSlider = NSSlider(value: 1.0, minValue: 0.5, maxValue: 2.0, target: nil, action: nil)
-    private let rifeSmoothLabel = NSTextField(labelWithString: "1.00x")
-    private let rifeLargeMotionCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-    private let rifePyramidPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-
     // 4. 推理缩放与分辨率
     private let resPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let scaleSlider = NSSlider(value: 1.0, minValue: 0.25, maxValue: 2.0, target: nil, action: nil)
-    private let scaleLabel = NSTextField(labelWithString: "1.00x (原生)")
 
     // 5. 调度与性能
-    private let qualityPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let workerPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let queueDepthPopup = NSPopUpButton(frame: .zero, pullsDown: false)
 
     // 6. 画面保护与节能
     private let sceneDetectionCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
@@ -153,7 +146,7 @@ final class RIFEConfigPanelController: NSWindowController {
 
 
     // 底部工具条
-    private let statusIndicator = NSTextField(labelWithString: "● 所有参数已实时生效")
+    private let statusIndicator = NSTextField(labelWithString: "● 设置按后端能力生效")
     private let resetButton = NSButton(title: "恢复默认", target: nil, action: nil)
     private let doneButton = NSButton(title: "完成", target: nil, action: nil)
 
@@ -236,7 +229,7 @@ final class RIFEConfigPanelController: NSWindowController {
         clipView.drawsBackground = false
         scrollView.contentView = clipView
 
-        let scrollDocView = NSView()
+        let scrollDocView = InterpolationSettingsDocumentView()
         scrollDocView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = scrollDocView
 
@@ -314,16 +307,20 @@ final class RIFEConfigPanelController: NSWindowController {
         rateCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
         // 2. 卡片：AI 补帧模型内核与精度
-        let modelCard = makeCardView(title: "AI 补帧模型架构与计算精度")
+        let modelCard = makeCardView(title: "补帧后端与模型")
         let modelStack = NSStackView()
         modelStack.orientation = .vertical
         modelStack.alignment = .leading
         modelStack.spacing = 8
 
+        backendPopup.addItems(withTitles: InterpolationBackend.allCases.map(\.title))
+        backendPopup.target = self
+        backendPopup.action = #selector(onBackendChanged(_:))
+        modelStack.addArrangedSubview(makeRow(label: "补帧后端:", control: backendPopup))
         modelPopup.addItems(withTitles: RIFEModelChoice.allCases.map(\.menuTitle))
         modelPopup.target = self
         modelPopup.action = #selector(onModelChanged(_:))
-        modelStack.addArrangedSubview(makeRow(label: "模型内核:", control: modelPopup))
+        modelStack.addArrangedSubview(makeRow(label: "模型权重:", control: modelPopup))
 
         precisionPopup.addItems(withTitles: [
             "FP16 半精度 (推荐 · Metal & Neural Engine 硬件加速)",
@@ -331,7 +328,12 @@ final class RIFEConfigPanelController: NSWindowController {
         ])
         precisionPopup.target = self
         precisionPopup.action = #selector(onPrecisionChanged(_:))
-        modelStack.addArrangedSubview(makeRow(label: "计算精度:", control: precisionPopup))
+        let numericRow = makeRow(label: "数值精度:", control: precisionPopup)
+        precisionRow = numericRow
+        modelStack.addArrangedSubview(numericRow)
+        precisionInfoLabel.font = .systemFont(ofSize: 11.5)
+        precisionInfoLabel.textColor = .secondaryLabelColor
+        modelStack.addArrangedSubview(precisionInfoLabel)
 
         // 模型专属高对比提示徽章
         modelStack.addArrangedSubview(modelTipBadge)
@@ -344,34 +346,22 @@ final class RIFEConfigPanelController: NSWindowController {
         rootStack.addArrangedSubview(modelCard.container)
         modelCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
-        // 3. 卡片：模型专属高级定制设置（动态联动）
-        setupCustomSettingsCard(in: rootStack)
-
         // 4. 卡片：推理分辨率与画面缩放
-        let resCard = makeCardView(title: "推理分辨率与画面缩放")
+        let resCard = makeCardView(title: "光流推理分辨率")
         let resStack = NSStackView()
         resStack.orientation = .vertical
         resStack.alignment = .leading
         resStack.spacing = 7
 
-        resPopup.addItems(withTitles: [
-            "甜点 (Sweet 0.5x · 极速流畅)",
-            "标准 (Normal 1.0x · 原生画质)",
-            "高质 (Quality 1.5x · 细节丰富)",
-            "极致 (Top 2.0x · 超高精细度)"
-        ])
         resPopup.target = self
         resPopup.action = #selector(onResolutionChanged(_:))
-        resStack.addArrangedSubview(makeRow(label: "预设档位:", control: resPopup))
-
-        scaleSlider.target = self
-        scaleSlider.action = #selector(onScaleFactorChanged(_:))
-        scaleSlider.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        scaleLabel.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
-        scaleLabel.textColor = NSColor(red: 0.35, green: 0.82, blue: 1.0, alpha: 1.0)
-        let scaleRow = makeRow(label: "细粒度缩放:", control: scaleSlider)
-        scaleRow.addArrangedSubview(scaleLabel)
-        resStack.addArrangedSubview(scaleRow)
+        resStack.addArrangedSubview(makeRow(label: "光流分辨率:", control: resPopup))
+        let resolutionTip = NSTextField(wrappingLabelWithString: "每个模型独立保存。分辨率越高，计算量越大；输出尺寸与目标帧率保持独立。")
+        resolutionTip.font = .systemFont(ofSize: 11.5)
+        resolutionTip.textColor = .secondaryLabelColor
+        resStack.addArrangedSubview(resolutionTip)
+        resolutionTip.widthAnchor.constraint(equalTo: resStack.widthAnchor).isActive = true
+        resolutionTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         resCard.contentView.addSubview(resStack)
         resStack.translatesAutoresizingMaskIntoConstraints = false
@@ -380,41 +370,22 @@ final class RIFEConfigPanelController: NSWindowController {
         resCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
         // 5. 卡片：调度策略与并发核心
-        let perfCard = makeCardView(title: "调度策略与并发核心")
+        let perfCard = makeCardView(title: "采集延迟策略（所有补帧后端通用）")
         let perfStack = NSStackView()
         perfStack.orientation = .vertical
         perfStack.alignment = .leading
         perfStack.spacing = 7
 
-        qualityPopup.addItems(withTitles: [
-            "稳定平滑 (推荐 · 帧间隔均匀抗抖动)",
-            "低延迟模式 (快速响应 · 适合交互预览)",
-            "极致画质模式 (最大吞吐保障)"
-        ])
-        qualityPopup.target = self
-        qualityPopup.action = #selector(onQualityChanged(_:))
-        perfStack.addArrangedSubview(makeRow(label: "调度模式:", control: qualityPopup))
-
-        workerPopup.addItems(withTitles: [
-            "4 核心 (轻载 · 省电静音)",
-            "6 核心 (平衡推荐)",
-            "8 核心 (满速高刷)",
-            "10 核心 (高负载)",
-            "12 核心 (极致吞吐)"
-        ])
-        workerPopup.target = self
-        workerPopup.action = #selector(onWorkerChanged(_:))
-        perfStack.addArrangedSubview(makeRow(label: "Worker 核心:", control: workerPopup))
-
-        queueDepthPopup.addItems(withTitles: [
-            "2 帧 (超低延迟)",
-            "4 帧 (标准平衡)",
-            "8 帧 (高抗抖动)",
-            "12 帧 (超深缓冲)"
-        ])
-        queueDepthPopup.target = self
-        queueDepthPopup.action = #selector(onQueueDepthChanged(_:))
-        perfStack.addArrangedSubview(makeRow(label: "预缓冲队列:", control: queueDepthPopup))
+        latencyPopup.addItems(withTitles: CaptureLowLatencyMode.allCases.map(\.title))
+        latencyPopup.target = self
+        latencyPopup.action = #selector(onLatencyChanged(_:))
+        perfStack.addArrangedSubview(makeRow(label: "采集延迟:", control: latencyPopup))
+        let latencyTip = NSTextField(wrappingLabelWithString: "仅调整实时采集的队列与过载丢帧策略，独立于模型、光流分辨率和数值精度。文件播放使用自己的时序。")
+        latencyTip.font = .systemFont(ofSize: 11.5)
+        latencyTip.textColor = .secondaryLabelColor
+        perfStack.addArrangedSubview(latencyTip)
+        latencyTip.widthAnchor.constraint(equalTo: perfStack.widthAnchor).isActive = true
+        latencyTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         perfCard.contentView.addSubview(perfStack)
         perfStack.translatesAutoresizingMaskIntoConstraints = false
@@ -464,10 +435,12 @@ final class RIFEConfigPanelController: NSWindowController {
         let deintRow = makeRow(label: "隔行反交错:", control: deinterlacePopup)
         protStack.addArrangedSubview(deintRow)
 
-        let deintTip = NSTextField(labelWithString: "💡 识别 .mts/.m2ts 50i/60i 隔行视频，自适应双场拆解消除横向拉丝，直接输出 50/60 FPS。")
+        let deintTip = NSTextField(wrappingLabelWithString: "💡 识别 .mts/.m2ts 50i/60i 隔行视频，自适应双场拆解消除横向拉丝，直接输出 50/60 FPS。")
         deintTip.font = .systemFont(ofSize: 11, weight: .regular)
         deintTip.textColor = NSColor(white: 0.65, alpha: 1.0)
         protStack.addArrangedSubview(deintTip)
+        deintTip.widthAnchor.constraint(equalTo: protStack.widthAnchor).isActive = true
+        deintTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         // HDR 转 SDR 色调映射 (针对 HDR10 / PQ / HLG 片源)
         hdrToneMappingPopup.addItems(withTitles: HDRToneMappingMode.allCases.map { $0.title })
@@ -476,10 +449,12 @@ final class RIFEConfigPanelController: NSWindowController {
         let hdrRow = makeRow(label: "HDR 转 SDR:", control: hdrToneMappingPopup)
         protStack.addArrangedSubview(hdrRow)
 
-        let hdrTip = NSTextField(labelWithString: "💡 识别 HDR10 (PQ/BT.2020) 或 HLG 视频，在 GPU 上转为高质量 SDR 画面后再接入补帧引擎，杜绝画面发灰与光流失真。")
+        let hdrTip = NSTextField(wrappingLabelWithString: "💡 识别 HDR10 (PQ/BT.2020) 或 HLG 视频，在 GPU 上转为高质量 SDR 画面后再接入补帧引擎，杜绝画面发灰与光流失真。")
         hdrTip.font = .systemFont(ofSize: 11, weight: .regular)
         hdrTip.textColor = NSColor(white: 0.65, alpha: 1.0)
         protStack.addArrangedSubview(hdrTip)
+        hdrTip.widthAnchor.constraint(equalTo: protStack.widthAnchor).isActive = true
+        hdrTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         protCard.contentView.addSubview(protStack)
         protStack.translatesAutoresizingMaskIntoConstraints = false
@@ -514,54 +489,6 @@ final class RIFEConfigPanelController: NSWindowController {
         bottomRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
     }
 
-    // MARK: - 构建模型专属高级定制卡片
-
-    private func setupCustomSettingsCard(in rootStack: NSStackView) {
-        let card = makeCardView(title: "模型专属高级定制")
-        customCardContainer = card.container
-
-        let parentStack = NSStackView()
-        parentStack.orientation = .vertical
-        parentStack.alignment = .leading
-        parentStack.spacing = 8
-        card.contentView.addSubview(parentStack)
-        parentStack.translatesAutoresizingMaskIntoConstraints = false
-        pinToEdges(parentStack, in: card.contentView)
-
-        // 1. RIFE 专属布局
-        rifeCustomStack.orientation = .vertical
-        rifeCustomStack.alignment = .leading
-        rifeCustomStack.spacing = 7
-
-        rifeSmoothSlider.target = self
-        rifeSmoothSlider.action = #selector(onRifeSmoothChanged(_:))
-        rifeSmoothSlider.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        rifeSmoothLabel.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
-        rifeSmoothLabel.textColor = NSColor(red: 0.35, green: 0.82, blue: 1.0, alpha: 1.0)
-        let smoothRow = makeRow(label: "光流平滑度:", control: rifeSmoothSlider)
-        smoothRow.addArrangedSubview(rifeSmoothLabel)
-        rifeCustomStack.addArrangedSubview(smoothRow)
-
-        configureCheckbox(rifeLargeMotionCheck, title: "大位移剧烈运动补偿 (动作大片强化)")
-        rifeLargeMotionCheck.target = self
-        rifeLargeMotionCheck.action = #selector(onRifeLargeMotionChanged(_:))
-        rifeCustomStack.addArrangedSubview(rifeLargeMotionCheck)
-
-        rifePyramidPopup.addItems(withTitles: [
-            "1 阶段 (快速 · 适合低分辨率)",
-            "2 阶段 (均衡 · 1080p 推荐)",
-            "3 阶段 (精细 · 4K/2K 超高清首选)"
-        ])
-        rifePyramidPopup.target = self
-        rifePyramidPopup.action = #selector(onRifePyramidChanged(_:))
-        rifeCustomStack.addArrangedSubview(makeRow(label: "金字塔阶段:", control: rifePyramidPopup))
-
-        parentStack.addArrangedSubview(rifeCustomStack)
-
-        rootStack.addArrangedSubview(card.container)
-        card.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
-    }
-
     // MARK: - 辅助组件生成
 
     private func makeCardView(title: String) -> (container: NSView, contentView: NSView) {
@@ -592,6 +519,10 @@ final class RIFEConfigPanelController: NSWindowController {
     }
 
     private func makeRow(label: String, control: NSView) -> NSStackView {
+        if control is NSPopUpButton {
+            control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            control.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
+        }
         let stack = NSStackView()
         stack.orientation = .horizontal
         stack.spacing = 10
@@ -654,63 +585,45 @@ final class RIFEConfigPanelController: NSWindowController {
         customFpsSlider.doubleValue = s.rifeCustomTargetFps
         customFpsLabel.stringValue = String(format: "%.1f FPS", s.rifeCustomTargetFps)
 
-        // 2. 模型与精度
-        if let index = RIFEModelChoice.allCases.firstIndex(of: s.rifeModel) {
-            modelPopup.selectItem(at: index)
+        // Backend, weight profile and precision are separate settings.
+        backendPopup.selectItem(at: InterpolationBackend.allCases.firstIndex(of: s.interpolationBackend) ?? 0)
+        modelPopup.removeAllItems()
+        if s.interpolationBackend == .rifeCoreML {
+            modelPopup.addItems(withTitles: RIFEModelChoice.allCases.map(\.menuTitle))
+            modelPopup.selectItem(at: RIFEModelChoice.allCases.firstIndex(of: s.rifeModel) ?? 0)
+        } else {
+            modelPopup.addItem(withTitle: s.interpolationBackend == .rifeMetalFast
+                ? "RIFE v4.25 · Fast（内部 1/4 网格）"
+                : s.interpolationBackend == .metalFX
+                ? "MetalFX 系统补帧器（实验性）" : "Apple 系统模型（随 macOS 提供）")
         }
+        modelPopup.isEnabled = s.interpolationBackend == .rifeCoreML
         updateModelTip(s.rifeModel)
-        updateCustomCardVisibility(for: s.rifeModel)
-        precisionPopup.selectItem(at: s.rifePrecision == .fp16 ? 0 : 1)
-
-        // 3. 模型专属参数
-        // RIFE
-        rifeSmoothSlider.doubleValue = s.rifeFlowSmoothness
-        updateRifeSmoothLabel(s.rifeFlowSmoothness)
-        rifeLargeMotionCheck.state = s.rifeLargeMotionAssist ? .on : .off
-        rifePyramidPopup.selectItem(at: max(0, min(2, s.rifePyramidStages - 1)))
-
-        // 4. 分辨率与缩放
-        switch s.rifeResolution {
-        case .sweet:   resPopup.selectItem(at: 0)
-        case .normal:  resPopup.selectItem(at: 1)
-        case .quality: resPopup.selectItem(at: 2)
-        case .top:     resPopup.selectItem(at: 3)
+        updateBackendControls()
+        precisionPopup.removeAllItems()
+        precisionPopup.addItems(withTitles: s.availableComputePrecisions.map(\.title))
+        if let precisionIndex = s.availableComputePrecisions.firstIndex(of: s.rifePrecision) {
+            precisionPopup.selectItem(at: precisionIndex)
         }
-        scaleSlider.doubleValue = s.rifeScaleFactor
-        updateScaleLabel(s.rifeScaleFactor)
+        precisionRow?.isHidden = s.availableComputePrecisions.count <= 1
+        precisionInfoLabel.stringValue = "数值精度：" + s.computePrecisionDescription
+        latencyPopup.selectItem(at: CaptureLowLatencyMode.allCases.firstIndex(of: s.captureLowLatencyMode) ?? 1)
 
-        // 5. 调度与核心
-        switch s.rifeQualityMode {
-        case .stable:      qualityPopup.selectItem(at: 0)
-        case .lowLatency:  qualityPopup.selectItem(at: 1)
-        case .highQuality: qualityPopup.selectItem(at: 2)
-        }
-
-        switch s.rifeWorkerCount {
-        case 4:  workerPopup.selectItem(at: 0)
-        case 6:  workerPopup.selectItem(at: 1)
-        case 8:  workerPopup.selectItem(at: 2)
-        case 10: workerPopup.selectItem(at: 3)
-        case 12: workerPopup.selectItem(at: 4)
-        default: workerPopup.selectItem(at: 2)
-        }
-
-        switch s.rifeQueueDepth {
-        case 2:  queueDepthPopup.selectItem(at: 0)
-        case 4:  queueDepthPopup.selectItem(at: 1)
-        case 8:  queueDepthPopup.selectItem(at: 2)
-        case 12: queueDepthPopup.selectItem(at: 3)
-        default: queueDepthPopup.selectItem(at: 1)
-        }
+        resPopup.removeAllItems()
+        resPopup.addItems(withTitles: s.availableFlowResolutions.map {
+            s.interpolationBackend == .rifeMetalFast
+                ? "输入上限 \($0.height)p · Fast 1/4 光流" : $0.title
+        })
+        resPopup.selectItem(at: s.availableFlowResolutions.firstIndex(of: s.interpolationFlowResolution) ?? 0)
 
         // 6. 画面保护
         sceneDetectionCheckbox.state = s.rifeTransitionDetection ? .on : .off
-        sceneThresholdSlider.isEnabled = s.rifeModel != .appleLowLatency && s.rifeTransitionDetection
+        sceneThresholdSlider.isEnabled = s.interpolationBackend == .rifeCoreML && s.rifeTransitionDetection
         sceneThresholdSlider.doubleValue = s.rifeSceneThreshold
         sceneThresholdLabel.stringValue = String(format: "%.0f%%", s.rifeSceneThreshold * 100)
 
         staticSkipCheckbox.state = s.rifeStaticFrameSkip ? .on : .off
-        staticThresholdSlider.isEnabled = s.rifeModel != .appleLowLatency && s.rifeStaticFrameSkip
+        staticThresholdSlider.isEnabled = s.interpolationBackend == .rifeCoreML && s.rifeStaticFrameSkip
         staticThresholdSlider.doubleValue = s.rifeStaticThreshold
         staticThresholdLabel.stringValue = String(format: "%.1f%%", s.rifeStaticThreshold * 100)
 
@@ -727,28 +640,16 @@ final class RIFEConfigPanelController: NSWindowController {
         isUpdatingUI = false
     }
 
-    private func updateCustomCardVisibility(for model: RIFEModelChoice) {
-        customCardContainer?.isHidden = (model == .appleLowLatency)
-        rifeCustomStack.isHidden = (model == .appleLowLatency)
-        let controls: [NSControl] = [precisionPopup, resPopup, scaleSlider, qualityPopup, workerPopup,
-            queueDepthPopup, sceneDetectionCheckbox, sceneThresholdSlider, staticSkipCheckbox, staticThresholdSlider]
-        controls.forEach { $0.isEnabled = model != .appleLowLatency }
-        sceneThresholdSlider.isEnabled = model != .appleLowLatency && sceneDetectionCheckbox.state == .on
-        staticThresholdSlider.isEnabled = model != .appleLowLatency && staticSkipCheckbox.state == .on
-    }
-
-    private func updateScaleLabel(_ val: Double) {
-        let tag: String
-        if abs(val - 0.5) < 0.04 { tag = "(甜点)" }
-        else if abs(val - 1.0) < 0.04 { tag = "(原生)" }
-        else if abs(val - 1.5) < 0.04 { tag = "(高画质)" }
-        else if abs(val - 2.0) < 0.04 { tag = "(极致)" }
-        else { tag = "" }
-        scaleLabel.stringValue = String(format: "%.2fx %@", val, tag)
-    }
-
-    private func updateRifeSmoothLabel(_ val: Double) {
-        rifeSmoothLabel.stringValue = String(format: "%.2fx", val)
+    private func updateBackendControls() {
+        let isRIFE = PlaybackSettings.shared.interpolationBackend == .rifeCoreML
+        // The legacy block-matching parameters are not controls for the CoreML
+        // weights or the system model. Do not offer knobs that cannot take effect.
+        resPopup.isEnabled = true
+        latencyPopup.isEnabled = true
+        sceneDetectionCheckbox.isEnabled = isRIFE
+        staticSkipCheckbox.isEnabled = isRIFE
+        sceneThresholdSlider.isEnabled = isRIFE && sceneDetectionCheckbox.state == .on
+        staticThresholdSlider.isEnabled = isRIFE && staticSkipCheckbox.state == .on
     }
 
     // MARK: - 事件监听与触发
@@ -783,110 +684,56 @@ final class RIFEConfigPanelController: NSWindowController {
         PlaybackSettings.shared.rifeCustomTargetFps = val
     }
 
+    @objc private func onBackendChanged(_ sender: Any?) {
+        guard !isUpdatingUI, InterpolationBackend.allCases.indices.contains(backendPopup.indexOfSelectedItem) else { return }
+        PlaybackSettings.shared.interpolationBackend = InterpolationBackend.allCases[backendPopup.indexOfSelectedItem]
+    }
+
+    @objc private func onLatencyChanged(_ sender: Any?) {
+        guard !isUpdatingUI, CaptureLowLatencyMode.allCases.indices.contains(latencyPopup.indexOfSelectedItem) else { return }
+        PlaybackSettings.shared.captureLowLatencyMode = CaptureLowLatencyMode.allCases[latencyPopup.indexOfSelectedItem]
+    }
+
     @objc private func onModelChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let s = PlaybackSettings.shared
+        guard !isUpdatingUI, PlaybackSettings.shared.interpolationBackend == .rifeCoreML else { return }
         let models = RIFEModelChoice.allCases
         let index = modelPopup.indexOfSelectedItem
         guard models.indices.contains(index) else { return }
-        s.rifeModel = models[index]
-        updateModelTip(s.rifeModel)
-        updateCustomCardVisibility(for: s.rifeModel)
+        PlaybackSettings.shared.rifeModel = models[index]
     }
 
     private func updateModelTip(_ model: RIFEModelChoice) {
-        switch model {
-        case .appleLowLatency:
+        if PlaybackSettings.shared.interpolationBackend == .rifeMetalFast {
             modelTipBadge.configure(
-                text: "💡 Apple 低延迟：优先跟手与帧率，原始帧保持源画质，中间帧在最多 720p 生成后放大，运动细节可能偏软。支持 2X；其他帧率或不支持的系统回退 RIFE。",
-                theme: .cyan
-            )
-        case .v426, .heavy426:
+                text: "RifeMetal Fast：两帧画面输入，RIFE 4.25 FP16，内部以对齐后输入的 1/4 尺寸估计光流。下方选择输入尺寸上限；原帧保留，中间帧恢复源尺寸。支持 SDR 2X，失败回退 Core ML RIFE；实时性能待实测。",
+                theme: .cyan)
+        } else if PlaybackSettings.shared.interpolationBackend == .metalFX {
             modelTipBadge.configure(
-                text: "💡 RIFE v4.26：基于残差光流金字塔（IFNet），擅长物理世界连续运动与实拍电影大动作。",
-                theme: .cyan
-            )
+                text: "MetalFX 实验性补帧：由画面估算光流，深度采用平面近似，可能重影；尚未验证性能。仅支持 SDR 2X，需 macOS 26 及支持的 GPU；失败使用 RIFE 回退。数值精度由系统管理。",
+                theme: .cyan)
+        } else if PlaybackSettings.shared.interpolationBackend == .appleVideoToolbox {
+            modelTipBadge.configure(
+                text: "Apple 系统模型：光流推理分辨率独立可选，原始帧保持源画质。系统不开放数值精度控制。支持2X；不支持的格式或帧率使用RIFE回退配置。",
+                theme: .cyan)
+        } else {
+            modelTipBadge.configure(
+                text: "RIFE模型：光流分辨率选择对应的实际模型包；输出仍按源尺寸融合。当前包仅提供FP16。较高分辨率不保证实时帧率。",
+                theme: .cyan)
         }
-    }
-
-    // RIFE 专属事件
-    @objc private func onRifeSmoothChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let val = round(rifeSmoothSlider.doubleValue * 20) / 20
-        updateRifeSmoothLabel(val)
-        PlaybackSettings.shared.rifeFlowSmoothness = val
-    }
-
-    @objc private func onRifeLargeMotionChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        PlaybackSettings.shared.rifeLargeMotionAssist = (rifeLargeMotionCheck.state == .on)
-    }
-
-    @objc private func onRifePyramidChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        PlaybackSettings.shared.rifePyramidStages = rifePyramidPopup.indexOfSelectedItem + 1
     }
 
     @objc private func onPrecisionChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
-        PlaybackSettings.shared.rifePrecision = precisionPopup.indexOfSelectedItem == 0 ? .fp16 : .fp32
+        let choices = PlaybackSettings.shared.availableComputePrecisions
+        guard choices.indices.contains(precisionPopup.indexOfSelectedItem) else { return }
+        PlaybackSettings.shared.rifePrecision = choices[precisionPopup.indexOfSelectedItem]
     }
 
     @objc private func onResolutionChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
-        let s = PlaybackSettings.shared
-        switch resPopup.indexOfSelectedItem {
-        case 0:
-            s.rifeResolution = .sweet
-            s.rifeScaleFactor = 0.5
-        case 1:
-            s.rifeResolution = .normal
-            s.rifeScaleFactor = 1.0
-        case 2:
-            s.rifeResolution = .quality
-            s.rifeScaleFactor = 1.5
-        case 3:
-            s.rifeResolution = .top
-            s.rifeScaleFactor = 2.0
-        default: break
-        }
-        scaleSlider.doubleValue = s.rifeScaleFactor
-        updateScaleLabel(s.rifeScaleFactor)
-    }
-
-    @objc private func onScaleFactorChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let val = round(scaleSlider.doubleValue * 20) / 20
-        updateScaleLabel(val)
-        PlaybackSettings.shared.rifeScaleFactor = val
-    }
-
-    @objc private func onQualityChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let s = PlaybackSettings.shared
-        switch qualityPopup.indexOfSelectedItem {
-        case 0: s.rifeQualityMode = .stable
-        case 1: s.rifeQualityMode = .lowLatency
-        case 2: s.rifeQualityMode = .highQuality
-        default: break
-        }
-    }
-
-    @objc private func onWorkerChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let idx = workerPopup.indexOfSelectedItem
-        if idx >= 0 && idx < PlaybackSettings.rifeWorkerChoices.count {
-            PlaybackSettings.shared.rifeWorkerCount = PlaybackSettings.rifeWorkerChoices[idx]
-        }
-    }
-
-    @objc private func onQueueDepthChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let choices = [2, 4, 8, 12]
-        let idx = queueDepthPopup.indexOfSelectedItem
-        if idx >= 0 && idx < choices.count {
-            PlaybackSettings.shared.rifeQueueDepth = choices[idx]
-        }
+        let choices = PlaybackSettings.shared.availableFlowResolutions
+        guard choices.indices.contains(resPopup.indexOfSelectedItem) else { return }
+        PlaybackSettings.shared.interpolationFlowResolution = choices[resPopup.indexOfSelectedItem]
     }
 
     @objc private func onSceneDetectionToggled(_ sender: Any?) {

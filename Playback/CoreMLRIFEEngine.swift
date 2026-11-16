@@ -62,7 +62,10 @@ final class CoreMLRIFEEngine {
         lock.lock(); defer { lock.unlock() }
         if permanentlyFailed { return "真模型不可用 (\(failureReason))" }
         if engines.isEmpty { return "真模型加载中…" }
-        return String(format: "真模型活跃 x%d (已生成 %d 帧)", engines.count, interpolatedFrames)
+        let size = engines.first.map { "\($0.modelW)×\($0.modelH) · FP16" } ?? ""
+        let model = activeVariant.contains("heavy") ? "RIFE 4.26 Heavy" : "RIFE 4.26"
+        let prefix = activeVariant == requestedVariant ? "" : "已回退至 "
+        return String(format: "%@%@ · x%d · %@ (已生成 %d 帧)", prefix, model, engines.count, size, interpolatedFrames)
     }
 
     /// 初始化系统性失败（模型缺失 / 零拷贝不可用）——调用方此后不再尝试本引擎。
@@ -85,6 +88,8 @@ final class CoreMLRIFEEngine {
     private var engineLocks: [NSLock] = []
     /// engines 对应的配置指纹（模型档 + 源分辨率 + 色彩参数）
     private var engineConfig: String = ""
+    private var activeVariant = ""
+    private var requestedVariant = ""
     private var pendingConfig: String?
     private let initQueue = DispatchQueue(label: "com.macrife.coremlrife.init", qos: .userInitiated)
 
@@ -107,21 +112,18 @@ final class CoreMLRIFEEngine {
     // MARK: 档位映射
 
     /// rifeModel 设置 → models.dat 里的 RIFE 4.26 模型目录名。
-    /// 档位固定 576p tier：实时回放算力优先，细节由 blendAtSource 保底。
-    private static func variantName(for model: RIFEModelChoice) -> String? {
+    /// Select the actual compiled flow-resolution variant independently of latency.
+    private static func variantName(for model: RIFEModelChoice, resolution: FlowInferenceResolution) -> String? {
         // MP_RIFE_VARIANT 环境变量可强制指定档位目录（A/B 测试用）
         if let forced = ProcessInfo.processInfo.environment["MP_RIFE_VARIANT"] {
             return forced.isEmpty ? nil : forced
         }
-        switch model {
-        case .v426, .appleLowLatency: return "rife_426_fp16_576p_blocks"
-        case .heavy426:  return "rife_426_heavy_fp16_576p_blocks"
-        }
+        return model.compiledVariant(resolution: resolution)
     }
 
     private func configKey(settings: PlaybackSettings, w: Int, h: Int,
                            fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) -> String {
-        "\(settings.rifeModel.rawValue)|\(w)x\(h)|\(fullRange ? 1 : 0)|\(colorSpaceCode)|\(is10Bit ? 1 : 0)"
+        "\(settings.rifeModel.rawValue)|\(settings.flowResolution(for: .rifeCoreML).rawValue)|\(w)x\(h)|\(fullRange ? 1 : 0)|\(colorSpaceCode)|\(is10Bit ? 1 : 0)"
     }
 
     // MARK: 对外接口
@@ -131,7 +133,7 @@ final class CoreMLRIFEEngine {
                  fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) -> Bool {
         guard !permanentlyFailed,
               settings.rifeRateMode != .off,
-              Self.variantName(for: settings.rifeModel) != nil,
+              Self.variantName(for: settings.rifeModel, resolution: settings.flowResolution(for: .rifeCoreML)) != nil,
               sourceWidth > 0, sourceHeight > 0 else { return false }
         lock.lock(); defer { lock.unlock() }
         return !engines.isEmpty && engineConfig == configKey(settings: settings,
@@ -146,10 +148,11 @@ final class CoreMLRIFEEngine {
                          fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) {
         guard !permanentlyFailed,
               settings.rifeRateMode != .off,
-              let variant = Self.variantName(for: settings.rifeModel),
+              let variant = Self.variantName(for: settings.rifeModel, resolution: settings.flowResolution(for: .rifeCoreML)),
               sourceWidth > 0, sourceHeight > 0 else { return }
         let key = configKey(settings: settings, w: sourceWidth, h: sourceHeight,
                             fullRange: fullRange, colorSpaceCode: colorSpaceCode, is10Bit: is10Bit)
+        let fallbackVariant = Self.variantName(for: .v426, resolution: settings.flowResolution(for: .rifeCoreML)) ?? Engine.fallbackVariant
         lock.lock()
         if !engines.isEmpty && engineConfig == key { lock.unlock(); return }
         if pendingConfig == key { lock.unlock(); return }
@@ -177,11 +180,11 @@ final class CoreMLRIFEEngine {
             }
             // 档位本身不兼容（例如 heavy 是 16 通道特征，本链路按 4 通道拼）：
             // 整档重试一次 4 通道档位，别让用户对着「补帧像没开」一头雾水。
-            if built.isEmpty, usedVariant != Engine.fallbackVariant {
+            if built.isEmpty, usedVariant != fallbackVariant {
                 let reason = buildError.map { String(describing: $0) } ?? ""
                 if reason.contains("档位不兼容") || reason.contains("通道") {
-                    NSLog("[CoreMLRIFE] %@ 档位不可用，自动回落到 %@", usedVariant, Engine.fallbackVariant)
-                    usedVariant = Engine.fallbackVariant
+                    NSLog("[CoreMLRIFE] %@ 档位不可用，自动回落到 %@", usedVariant, fallbackVariant)
+                    usedVariant = fallbackVariant
                     for _ in 0..<2 {
                         do {
                             let eng = try Engine(modelVariant: usedVariant,
@@ -212,6 +215,8 @@ final class CoreMLRIFEEngine {
             self.engines = built
             self.engineLocks = built.map { _ in NSLock() }
             self.engineConfig = key
+            self.activeVariant = usedVariant
+            self.requestedVariant = variant
             self.pendingConfig = nil
             self.lock.unlock()
             // 报**实际生效**的档位：回落时 variant 还是用户选的那个，

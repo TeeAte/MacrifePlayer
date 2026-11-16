@@ -184,45 +184,98 @@ USB3 Video真实采集25秒，1920×1080、设备60FPS、手动主机30模式、
 
 最终预览已确认显示“HUD文字保护”。用户在验证时切回固定60FPS，并开启MetalFX空间上采样；当次UI采样为59.0FPS，处理均耗18.9ms，最近240张显示取帧P50 38.7ms / P95 43.6ms，输入与AI待处理队列为空。这是运行时快照，启动后曾关闭AI，因此不把全程平均读数当作AI路径的持续帧率。新的主观观看效果仍以用户实际游戏反馈为准。
 
-## 其他低延迟模型调研记录（2026-11-16，暂不实测）
+## 纯画面低延迟补帧候选（2026-11-16，仅调研）
 
-用户要求先记录，不做实测。本节仅核对官方仓库、发布说明、模型代码与作者公开数据；没有安装或执行候选模型、运行性能测试或切换播放器后端。下面的数值不是本机测试结果，不能直接与前文M1 Pro的应用内滞后比较。
+目标是处理普通采集卡的前后两帧，不要求游戏提供深度、运动向量或相机参数。允许模型从画面内部估计光流。以下只核对公开文档、代码和权重入口，没有下载新模型、安装依赖、编译、测试或更改当前后端。
 
-### 候选与证据
+### 候选与接入依据
 
-| 候选 | 官方资料已确认 | 本机接入/性能仍待确认 |
+| 候选 | 图像输入与公开接入 | 低延迟依据及限制 | 建议 |
+|---|---|---|---|
+| **RifeMetal `.fast` / `.balanced`** | Swift 包，MPSGraph＋Metal；内置 RIFE 4.25 权重；公开 `interpolate(previous:current:)`、调用方提供输出缓冲区的重载及 `makeStream(width:height:)`。接收 BGRA/RGBA `CVPixelBuffer`。 | `.fast` 为四分之一内部推理网格，`.balanced` 为半分辨率，最终全分辨率 warp/blend。作者“4K30 实时”是目标，不是本机成绩。现有 NV12 采集需要色彩转换；源码部分 padding/crop 使用 CPU 拷贝，不能仅因有 CVPixelBuffer 接口就称为全程零拷贝。 | **优先评估可接入性**。源码、权重和进程内调用入口齐备；它是不同 RIFE 实现/推理档位，不是新训练模型。 |
+| **ODF-VFI 四阶段** | OpenDuckFrame 的 RIFE 4.25 四阶段结构精简，复用上游权重且未经重新训练；面向 Apple Silicon 的普通图像输入。 | 原生实现值得借鉴，但尚无本机完整链路对照；其整个应用的实时增强预留至少 80ms 自适应缓冲，不能直接照搬该播放调度。 | **第二条原生优化路线**，单独比较四阶段模型和现有管线，不把整个应用当低延迟 SDK。 |
+| **Nano / Open-Frame-gen** | 源码将两张 RGB 帧拼为六通道输入；模型自行预测光流和融合 mask。公开 PyTorch `nano_v17_best.pth`、ONNX `nano_v16.onnx`。 | 作者报告约 89.9K 参数，RTX3050 Laptop 的 1080p 模型推理 101.1±2.4FPS；Nano 用 FP16，对照用 FP32，不能照搬速度倍数。表中 PSNR 28.40，RIFE 对照 29.27。原生运行器硬编码 CUDA，需要 Core ML/Metal 移植及 grid_sample/warp 处理。 | **新轻量模型研究优先项**。先核对源码与权重版本、转换可行性，再评估 HUD、遮挡和快速运动质量。 |
+| **IFRNet-S** | 官方 Small 结构、预训练权重入口公开。推理签名为 `inference(img0, img1, embt, scale_factor)`；`embt` 是插值时刻，不是游戏运动数据；训练中的 flow 标签不是推理输入。 | 官方以 720p 衡量时间与 FLOPs，没有确认本机 M1 Pro 成绩。需要移植或转换；另有公开 ncnn/Vulkan 实现，但不等于已有适合本项目的原生 Metal 通路。 | **补充模型对照**，不是未经测试的速度冠军。 |
+
+来源：
+
+- [RifeMetal 说明及质量档](https://github.com/cinemore/rife-metal#quality-tiers)、[实际 Swift 接口源码](https://github.com/cinemore/rife-metal/blob/main/Sources/RifeMetal/RifeInterpolator.swift)。本次读取 main 的实际说明为 **4.25**，没有采用搜索摘要中的 4.26 描述。
+- [OpenDuckFrame 模型与缓冲说明](https://github.com/Jun-Rex/OpenDuckFrame#readme)。
+- [Nano 作者测速条件](https://github.com/Deadly-pro/Open-Frame-gen#results)、[两帧模型源码](https://github.com/Deadly-pro/Open-Frame-gen/blob/main/src/nano.py)。
+- [IFRNet 官方模型与权重入口](https://github.com/ltkong218/IFRNet)、[Small 推理源码](https://github.com/ltkong218/IFRNet/blob/main/models/IFRNet_S.py)、[ncnn 实现](https://github.com/nihui/ifrnet-ncnn-vulkan)。
+
+### 现有可用基线
+
+当前 Apple VideoToolbox 低延迟接口也属于纯画面路线：参数包含 sourceFrame、previousFrame、interpolationPhase 和 destinationFrames，不需要外部运动纹理或深度。它是系统管理模型，不能作为可独立导出权重的开源模型；macOS26+ 且运行时支持时可用。现有 720p 路径已有前文所列本机短测，仍应作为对照。
+
+来源：[Apple 低延迟参数接口](https://developer.apple.com/documentation/videotoolbox/vtlowlatencyframeinterpolationparameters)。
+
+### 选择原则
+
+按当前项目的**可接入性**，先看 RifeMetal fast，再看 ODF-VFI；按**新轻量网络探索**，先看 Nano，再看 IFRNet-S。这些不是已证实的本机速度排名。项目第一轮实测中 4.25 Lite 未快于现有 4.26，不能仅凭 Lite 名称替换。
+
+纯两帧插值仍要等待后一张真实帧；30FPS 内容的相邻帧间隔约 33.3ms。模型耗时、采集/显示等待和排队延迟应分开记录，不能把模型 FPS 当成输入到屏幕总延迟。恢复实测时，应统一源内容、输出尺寸与内部推理档位，比较预热后处理 P50/P95、显示 FPS、应用内滞后，以及 HUD/遮挡/快速运动质量。
+
+## RifeMetal Fast 接入（2026-11-16）
+
+- 固定官方源码提交 `f18852ddb72f5706ddbeb3333b80643a63634222` 到 `ThirdParty/RifeMetal`，保留 RIFE4.25 内置 FP16 权重，作为本地 Swift Package 编译。原始清单保留为 `Package.upstream.swift`，应用只构建库和 Metal 插件，不引入 CLI 依赖。
+- 后端菜单新增 **RifeMetal Fast（Metal · RIFE 4.25）**。新增 `RifeMetalFastInterpolator`，通过 `makeStream` / `push(into:)` 复用上一帧编码特征；不是逐帧调用 CLI。
+- 支持 SDR 2X。NV12/其他系统可转换格式通过 VideoToolbox 转为 BGRA 输入，中间帧转回源尺寸 NV12；原始帧直接保留。不支持的帧率、未映射 HDR 或运行失败走既有 CoreML RIFE 回退，并在状态中显示原因。
+- Fast 输入上限默认1080p，576p/720p/1080p/1440p独立保存；菜单明确标注“输入上限”，不把它当成真实光流高度。输入对齐到256倍数后，内部以1/4尺寸运行光流；状态报告实际输入和光流尺寸。1080p的1920×1080输入对应512×320内部网格。
+- 固定 FP16，精度下拉隐藏。显示统计和采集播放时钟读取当前后端的生成计数与完整帧对处理均耗；seek、停止、断流、内容节奏变化、切换后端、关闭/重开补帧均清除旧帧历史。
+- Release arm64 构建成功，包内权重哈希与固定源码一致，Metal库和许可文件齐全，深度/严格签名校验通过。设置回归9组、采集队列/时序回归16项通过。
+- **未运行模型推理或真实采集性能测试**，不声称实时达到60FPS、优于Apple后端或降低端到端延迟。未改变用户当前后端偏好设置。
+
+接入与来源记录：[ThirdParty/RifeMetal/INTEGRATION.md](../ThirdParty/RifeMetal/INTEGRATION.md)。
+
+## 设置分层调整（2026-11-16，仅静态验证）
+
+用户要求将低延迟、补帧后端/模型、光流推理分辨率和数值精度解耦；不具备精度调节能力的模型隐藏精度选择。本轮只修改代码、进行纯配置/队列检查、Release构建和静态配置面板截图，没有开启采集、运行模型或做性能实测。
+
+### 当前分层
+
+1. **输出模式**：倍率或目标FPS。
+2. **补帧后端**：RIFE（Core ML）／Apple系统补帧（VideoToolbox）。
+3. **模型权重**：RIFE v4.26／Heavy；Apple显示系统管理模型，后端不再混入RIFE权重列表。
+4. **光流推理分辨率**：独立配置，分别按RIFE权重型号、Apple后端保存，切换后恢复该配置。
+5. **数值精度**：仅在当前模型有至少两种实际可用精度时展示下拉。当前RIFE包只有FP16，Apple不公开FP16/FP32控制，因此两者均隐藏精度下拉，显示只读能力说明。
+6. **采集延迟策略**：极限／平衡／标准，独立于后端、模型、推理分辨率。手动主机30模式仍设定60FPS采集与输出目标，但不再自动替换用户选择的补帧后端。
+7. **画质增强**：MetalFX空间超分、Anime4K仍是独立渲染阶段。
+
+### 分辨率实际接线
+
+| 后端/模型 | 配置档 | 实际处理方式 |
 |---|---|---|
-| **ANR FG / Apex Neural Rendering** | 官网列出M1及以上、macOS26及以上；作者公布M2 Max上1080p、2X时每张生成帧4.26ms。公开Mac测试包存在。 | M1 Pro耗时、Mac接口能否接普通采集帧、额外运动/深度数据需求、真实游戏HUD质量，以及是否有适合嵌入播放器的SDK。 |
-| **ODF-VFI / OpenDuckFrame** | 面向Apple Silicon；以RIFE4.25上游权重做四阶段结构精简，未经重新训练。 | 精简后的画质、在本机是否快于当前Apple路径，以及移植到现有流水线的代价；没有确认可直接比较的M1 Pro测速。 |
-| **Nano / Open-Frame-gen** | 约89.9K参数；作者报告RTX3050 Laptop上1080p模型推理101.1±2.4FPS，Nano使用FP16；公开PyTorch和ONNX权重。 | 目前主程序面向Windows/CUDA/TensorRT；需要另行验证Core ML/Metal转换、M1 Pro性能和文字/运动画质。 |
-| **RifeMetal** | 原生MPSGraph＋Metal实现，内置RIFE4.25；有全分辨率、半分辨率、四分之一内部推理档，最后做全分辨率warp/blend。 | 属于替换推理后端与调节内部网格，并非新训练模型；没有确认优于当前Apple后端的本机耗时。 |
+| RIFE v4.26 | 576p／720p／1080p／1440p | 选择已安装的相应CoreML模型目录，不再仅改变一个未使用的UI缩放值。 |
+| RIFE Heavy | 576p／720p／1080p | 没有1440p包，不显示该档；现有执行器对Heavy的16通道特征仍有兼容限制，回退常规RIFE时保留相同分辨率，并报告实际模型。 |
+| Apple系统补帧 | 576p／720p／1080p／1440p上限 | 等比适配源尺寸、不放大源图；尺寸加入会话配置键，修改后重建处理配置。具体尺寸由系统运行时检查，不支持时走原有RIFE回退。 |
 
-来源：[ANR官网性能表](https://apexcompute.com/neural-rendering)、[ANR Mac测试包发布说明](https://github.com/apex-compute/ANR/releases/tag/FG-V.B15)、[OpenDuckFrame说明](https://github.com/Jun-Rex/OpenDuckFrame#readme)、[Nano作者结果与运行条件](https://github.com/Deadly-pro/Open-Frame-gen#results)、[RifeMetal质量档位](https://github.com/cinemore/rife-metal#quality-tiers)。
+RIFE的720p包使用1280×768模型画布，1080p包为1920×1088，1440p包为2560×1472；状态显示实际画布尺寸。Apple请求上限高于源分辨率时保持源尺寸。新增/高分辨率档只完成配置与模型元数据检查，未运行推理验证或评估实时吞吐。
 
-### ANR版本与可用性
+### 兼容与验证
 
-- 调研时最新公开版本为FG V.B18，发布于北京时间2026-11-15；说明写明沿用V.B16模型权重。
-- Mac测试包仍为V.B15，发布于北京时间2026-11-13。不能将最新Windows/Linux包的权重更新视为Mac包已经同步。
-- 主仓库仍将模型源码标为“coming soon”。本轮确认了Mac测试包，没有确认面向第三方播放器的正式Mac SDK/API；测试包约467MB，未下载安装。
-- 官网的4.26ms是M2 Max的1080p、2X生成耗时，既不是M1 Pro成绩，也不是采集卡到屏幕的总延迟。
+- 旧的 `rifeModel=appleLowLatency` 迁移为 `interpolationBackend=appleVideoToolbox`，RIFE权重另行保留为回退配置。
+- RIFE分辨率按 `macrife.interpolation.rife.<模型>.flowResolution` 存储；Apple使用 `macrife.interpolation.apple.flowResolution`。
+- RIFE数值精度预留按模型保存的位置，但当前执行器与模型包只支持FP16；旧FP32菜单从未切换FP32权重，不作为实际FP32能力迁移。
+- 移除面板中没有接入当前模型执行路径的缩放、Worker等旧选项；保留实际生效的采集队列策略与后端适用的保护项。
+- `sh Tests/run-interpolation-settings-tests.sh`：7组纯配置检查，覆盖迁移、分模型保存、持久化、延迟解耦、能力范围、模型目录映射及推理尺寸几何；不创建GPU/模型会话。
+- `sh Tests/run-capture-latency-tests.sh`：16项队列/时序回归通过。
+- Release构建、代码签名检查及RIFE/Apple静态设置面板检查通过。面板截图使用临时启动参数，未切换正在使用的采集后端。
 
-来源：[V.B18发布说明](https://github.com/apex-compute/ANR/releases/tag/FG-V.B18)、[V.B15发布说明](https://github.com/apex-compute/ANR/releases/tag/FG-V.B15)、[源码状态](https://github.com/apex-compute/ANR#apex-neural-rendering-anr)、[性能表](https://apexcompute.com/neural-rendering)。
+Apple类似DLSS用途的产品系列叫MetalFX。空间超分可用于最终视频画面；游戏内时域超分/补帧还需要深度、运动矢量等输入，不能将采集卡的最终图像直接当作这些游戏引擎数据。当前Apple视频补帧使用VideoToolbox，是另一条接口。
 
-### 比较时容易混淆的项目
+来源：[MetalFX框架](https://developer.apple.com/documentation/metalfx)、[Apple游戏补帧输入要求](https://developer.apple.com/videos/play/wwdc2025/211/)、[VideoToolbox低延迟插帧配置](https://developer.apple.com/documentation/videotoolbox/vtlowlatencyframeinterpolationconfiguration)。
 
-- **ODF整机体验不等于其模型延迟。** 其README明确增强实时输出至少预留80ms自适应缓冲，可选自动视频时序会请求140ms；未来若借鉴四阶段模型，应单独测试模型及现有低延迟流水线，不照搬其播放缓冲。
-- **Nano速度表的精度不同。** Nano为FP16，对照模型为FP32；不能将表中倍数当作同精度、同画质结论。作者同表PSNR为Nano28.40、RIFE HDv3 29.27，轻量化存在画质取舍。
-- **RIFE上游没有确认更晚的新权重。** 本轮查阅的官方列表仍列4.25、4.25.lite、4.26；上游推荐多数场景默认4.25。原生Metal/MLX移植不等于训练模型升级。
-- **MetalFX游戏插帧不等于当前VideoToolbox接口。** MetalFX插帧接口包含深度和运动纹理输入；采集卡只有最终图像，若采用此类接口，需要另外解决输入数据及其处理开销。
-- **PushFPS的Mac预览可作为时序/HUD参考。** 其Windows版支持在估计运动数据后调用ANR；Mac预览使用自己的CPU块匹配＋Metal运动补偿，并不等于已经有Mac版ANR采集卡集成，也不是一个新的AI模型。
+### MetalFX 采集补帧实验性接入（2026-11-16，未做视频实测）
 
-来源：[OpenDuckFrame缓冲与限制](https://github.com/Jun-Rex/OpenDuckFrame#support-and-limits)、[Nano测速条件](https://github.com/Deadly-pro/Open-Frame-gen#results)、[RIFE官方模型列表](https://github.com/hzwer/Practical-RIFE#trained-model)、[Apple MetalFX插帧输入](https://developer.apple.com/documentation/metalfx/mtlfxframeinterpolatorbase)、[PushFPS的ANR与Mac说明](https://github.com/DosukaSOL/PushFPS#anr-frame-generation-by-apex-compute)。
+新增独立的 `MetalFX 补帧（实验性）` 后端，实际调用 `MTLFXFrameInterpolator`，与渲染阶段的 MetalFX 空间超分开关独立。支持 SDR 2X，保留源帧对象与分辨率，中间帧按所选 576p / 720p / 1080p / 1440p 上限处理后恢复源尺寸。分辨率单独保存在 `macrife.interpolation.metalfx.flowResolution`；数值精度由系统管理，不显示精度选择框。
 
-### 留待恢复实测后的顺序
+采集卡没有游戏引擎运动矢量、深度、相机参数，也不能分离已经合成的 UI。此桥接方案用 Vision `VNGenerateOpticalFlowRequest` revision 1 / low 估算当前到上一帧的像素运动，关闭 raw network output；深度固定为 0.5，近远平面 0.1 / 100、视角 60°、jitter 0 均为近似。它不等价于游戏内完整 MetalFX 集成，不能据此承诺更低延迟或修复重影。Vision 的 RG32Float 光流存储格式不代表可以调整 MetalFX 内部模型的数值精度。
 
-1. **ANR Mac测试包**：先确认接口和输入要求，再决定能否进行同场景对照；它是本轮最值得关注的新模型候选，但尚不能认定比现有方案更快。
-2. **ODF-VFI四阶段方案**：检查模型结构及原生实现，比较完整模型与精简模型的耗时和HUD/运动质量。
-3. **Nano**：先评估Core ML/Metal可转换性，再考虑是否值得制作本机实验版本。
-4. **RifeMetal后端**：作为RIFE原生GPU实现的对照路线。
+处理顺序为 NV12 缩小和 RGB 转换 → Vision 光流估算 → MetalFX 补帧 → NV12 与原分辨率恢复。已有的静止 HUD 笔画保护复用在 NV12 输出阶段；打包 YUY2 可通过 VideoToolbox 转换参与补帧，但不宣称该路径具备 HUD 保护。Vision 与 MetalFX 之间需要同步，额外光流、色彩转换和拷贝均可能抵消补帧器自身的速度优势。
 
-恢复测试时统一使用同一段1080p60采集、主机30FPS内容，分别记录模型完整处理耗时、P50/P95、真实显示FPS、应用内滞后、转换/缩放开销及HUD重影。现阶段结论仅为“有值得验证的新候选”，尚无证据证明某候选在本机降低了总延迟。
+运行时通过 `supportsDevice` 检查设备；macOS 版本、帧率、HDR、格式、光流或 Metal 处理失败时返回 RIFE 路径，并显示回退原因。格式/尺寸切换重建会话；停止、重载、跳转、采集节奏改变和帧间隙清除旧帧或历史，避免跨时间段配对。未验证设备实际支持情况、Vision 运动方向/坐标、MetalFX 首次历史行为、输出画质、帧率或延迟。
+
+已通过：Release 构建、应用签名验证、8 组配置检查、16 项采集队列/时钟回归检查、两个新色彩转换内核的 Metal 编译。静态设置 PNG `/private/tmp/macrife-settings-metalfx.png` 确认新入口与精度隐藏。没有运行采集、光流请求、模型或 MetalFX 插帧。已打开的旧应用进程须退出并重新打开工作区根目录的新 `.app` 才会加载新代码。
+
+接口依据：本机 macOS 27.2 SDK 的 `MTLFXFrameInterpolator.h`、`VNGenerateOpticalFlowRequest.h`；[MetalFX 插帧输入与 UI 要求](https://developer.apple.com/videos/play/wwdc2025/211/)、[Vision 光流请求](https://developer.apple.com/documentation/vision/vngenerateopticalflowrequest)。

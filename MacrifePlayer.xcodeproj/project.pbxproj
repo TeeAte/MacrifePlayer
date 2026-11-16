@@ -293,6 +293,9 @@
 		A1F4C1012D8C0101000000B1 /* LiveCapturePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B1 /* LiveCapturePipeline.swift */; };
 		A1F4C1012D8C0101000000B2 /* DevFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B2 /* DevFlag.swift */; };
 		A1F4C1012D8C0101000000B3 /* AppleLowLatencyInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */; };
+		A1F4C1012D8C0101000000B4 /* MetalFXCaptureInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */; };
+		B2F4C1012D8C0101000000B5 /* RifeMetalFastInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */; };
+		B2F4C1032D8C0101000000B5 /* RifeMetal in Frameworks */ = {isa = PBXBuildFile; productRef = B2F4C1042D8C0101000000B5 /* RifeMetal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -665,6 +668,8 @@
 		A1F4C1022D8C0101000000B1 /* LiveCapturePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCapturePipeline.swift; sourceTree = "<group>"; };
 		A1F4C1022D8C0101000000B2 /* DevFlag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevFlag.swift; sourceTree = "<group>"; };
 		A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleLowLatencyInterpolator.swift; sourceTree = "<group>"; };
+		A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalFXCaptureInterpolator.swift; sourceTree = "<group>"; };
+		B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RifeMetalFastInterpolator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -672,6 +677,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2F4C1032D8C0101000000B5 /* RifeMetal in Frameworks */,
 				5F1922EB6269CBFE9B0D91C3 /* AVFAudio.framework in Frameworks */,
 				6E542C757964EE52DA37227D /* AVFoundation.framework in Frameworks */,
 				6E8972EAAD587831116A92B0 /* AppKit.framework in Frameworks */,
@@ -1025,6 +1031,8 @@
 				A1F4C1022D8C0101000000B0 /* BoundedQueue.swift */,
 				A1F4C1022D8C0101000000B1 /* LiveCapturePipeline.swift */,
 				A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */,
+				A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */,
+				B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */,
 				39DD7B8C2D5521DFEBD514B0 /* PipelinePrimitives.swift */,
 				386A4DCF0250608F4B4295C5 /* PlaybackEngine.swift */,
 				A1F4D0022D8C010100000001 /* ModelPackageManager.swift */,
@@ -1233,6 +1241,7 @@
 			dependencies = (
 			);
 			name = MacrifePlayer;
+			packageProductDependencies = (B2F4C1042D8C0101000000B5 /* RifeMetal */,);
 			productName = "Macrife Player";
 			productReference = D6E4A9B6646C62FC48BAA6DD /* Macrife Player.app */;
 			productType = "com.apple.product-type.application";
@@ -1257,6 +1266,7 @@
 			);
 			mainGroup = 7CB4F5C86BC1495BE5275A82;
 			productRefGroup = F0220EF8F17ECEBD49AC2FAE /* Products */;
+			packageReferences = (B2F4C1052D8C0101000000B5 /* XCLocalSwiftPackageReference "ThirdParty/RifeMetal" */,);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -1461,6 +1471,8 @@
 				A1F4C1012D8C0101000000B0 /* BoundedQueue.swift in Sources */,
 				A1F4C1012D8C0101000000B1 /* LiveCapturePipeline.swift in Sources */,
 				A1F4C1012D8C0101000000B3 /* AppleLowLatencyInterpolator.swift in Sources */,
+				A1F4C1012D8C0101000000B4 /* MetalFXCaptureInterpolator.swift in Sources */,
+				B2F4C1012D8C0101000000B5 /* RifeMetalFastInterpolator.swift in Sources */,
 				D29EF87D172FE61B4FBD88F8 /* PipelinePrimitives.swift in Sources */,
 				96C355A470526C1132B8568D /* PlaybackEngine.swift in Sources */,
 				6DBF7102AD64F4C27184B475 /* PlaybackStats.swift in Sources */,
@@ -1497,6 +1509,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B2F4C1052D8C0101000000B5 /* XCLocalSwiftPackageReference "ThirdParty/RifeMetal" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ThirdParty/RifeMetal;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B2F4C1042D8C0101000000B5 /* RifeMetal */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RifeMetal;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0D7EFFCC07C8C6D5CB92250D /* Release */ = {

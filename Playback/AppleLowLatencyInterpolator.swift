@@ -6,7 +6,7 @@ import QuartzCore
 import Metal
 
 /// 单一视频处理线程拥有会话；只把计数与状态以快照形式交给 UI。
-/// 原帧不经过缩放；中间帧最多720p推理，放大时保留静止HUD的原始像素。
+/// 原帧不经过缩放；中间帧推理分辨率独立可选，放大时保留HUD原始像素。
 final class AppleLowLatencyInterpolator {
     private let processingLock = NSLock()
     private var storage: AnyObject?
@@ -50,7 +50,7 @@ final class AppleLowLatencyInterpolator {
 
     /// nil 表示当前格式/帧率/系统不支持，由播放引擎继续走 RIFE。
     func interpolate(_ frame: DecodedVideoFrame, sourceFPS: Double,
-                     targetFPS: Double) -> [DecodedVideoFrame]? {
+                     targetFPS: Double, maxInferenceHeight: Int = 720) -> [DecodedVideoFrame]? {
         processingLock.lock(); defer { processingLock.unlock() }
         guard Self.supports(sourceFPS: sourceFPS, targetFPS: targetFPS), !frame.isHDR else {
             setStatus("当前帧率或 HDR 使用 RIFE 回退")
@@ -62,13 +62,15 @@ final class AppleLowLatencyInterpolator {
         }
         let width = CVPixelBufferGetWidth(frame.pixelBuffer)
         let height = CVPixelBufferGetHeight(frame.pixelBuffer)
-        let key = "\(width)x\(height)|\(CVPixelBufferGetPixelFormatType(frame.pixelBuffer))|\(frame.colorSpaceCode)|\(frame.isFullRange)"
+        let inferenceHeight = max(2, maxInferenceHeight)
+        let key = "\(width)x\(height)|\(inferenceHeight)|\(CVPixelBufferGetPixelFormatType(frame.pixelBuffer))|\(frame.colorSpaceCode)|\(frame.isFullRange)"
         guard !failedKeys.contains(key) else { return nil }
         do {
             if configurationKey != key {
                 storage = nil
                 storage = try AppleInterpolationSession(width: width, height: height,
-                                                         colorSpaceCode: frame.colorSpaceCode)
+                                                         colorSpaceCode: frame.colorSpaceCode,
+                                                         maxInferenceHeight: inferenceHeight)
                 configurationKey = key
             }
             guard let session = storage as? AppleInterpolationSession else { return nil }
@@ -114,11 +116,12 @@ private final class AppleInterpolationSession {
     private var previous: (frame: DecodedVideoFrame, small: CVPixelBuffer)?
     private(set) var hudProtectionActive = false
 
-    init(width sourceWidth: Int, height sourceHeight: Int, colorSpaceCode: Int32) throws {
+    init(width sourceWidth: Int, height sourceHeight: Int, colorSpaceCode: Int32, maxInferenceHeight: Int) throws {
         guard VTLowLatencyFrameInterpolationConfiguration.isSupported else { throw Failure.unsupported }
-        let scale = min(1, min(1280.0 / Double(sourceWidth), 720.0 / Double(sourceHeight)))
-        width = max(2, Int(Double(sourceWidth) * scale) / 2 * 2)
-        height = max(2, Int(Double(sourceHeight) * scale) / 2 * 2)
+        let dimensions = InferenceGeometry.fit(sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                                               maxHeight: maxInferenceHeight)
+        width = dimensions.width
+        height = dimensions.height
         guard let configuration = VTLowLatencyFrameInterpolationConfiguration(
             frameWidth: width, frameHeight: height, numberOfInterpolatedFrames: 1) else {
             throw Failure.unsupported
@@ -267,7 +270,7 @@ private final class AppleInterpolationSession {
 }
 
 /// NV12 两平面直接采样与写出，不经 CPU/RGB 往返；每次缩放只提交一个 command buffer。
-private final class NV12GPUResizer {
+final class NV12GPUResizer {
     private let queue: MTLCommandQueue
     private let pipeline: MTLComputePipelineState
     private let staticDetailPipeline: MTLComputePipelineState

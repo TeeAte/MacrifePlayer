@@ -1,0 +1,184 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish macOS CLI
+    runs-on: macos-15
+
+    env:
+      ARM64_ARCHIVE_NAME: rife-metal-macos-arm64
+      X86_64_ARCHIVE_NAME: rife-metal-macos-x86_64
+      UNIVERSAL_ARCHIVE_NAME: rife-metal-macos-universal
+      RESOURCE_BUNDLE_NAME: RifeMetal_RifeMetalCore.bundle
+      RIFE_WEIGHTS_FILE: rife-v4.25.rmw
+      RIFE_WEIGHTS_PATH: Sources/RifeMetal/Resources/rife-v4.25.rmw
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z.-]+)?$'; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check out source
+        uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Build arm64 binary
+        run: swift build -c release --arch arm64 --product rife-metal
+
+      - name: Build x86_64 binary
+        run: swift build -c release --arch x86_64 --product rife-metal
+
+      - name: Package release archive
+        run: |
+          set -euo pipefail
+
+          staging="$(mktemp -d)"
+          mkdir -p "$staging/${ARM64_ARCHIVE_NAME}/bin" "$staging/${ARM64_ARCHIVE_NAME}/share/rife-metal"
+          mkdir -p "$staging/${X86_64_ARCHIVE_NAME}/bin" "$staging/${X86_64_ARCHIVE_NAME}/share/rife-metal"
+          mkdir -p "$staging/${UNIVERSAL_ARCHIVE_NAME}/bin" "$staging/${UNIVERSAL_ARCHIVE_NAME}/share/rife-metal"
+
+          cp .build/arm64-apple-macosx/release/rife-metal "$staging/${ARM64_ARCHIVE_NAME}/bin/rife-metal"
+          cp .build/x86_64-apple-macosx/release/rife-metal "$staging/${X86_64_ARCHIVE_NAME}/bin/rife-metal"
+          chmod 755 "$staging/${ARM64_ARCHIVE_NAME}/bin/rife-metal"
+          chmod 755 "$staging/${X86_64_ARCHIVE_NAME}/bin/rife-metal"
+
+          lipo -create \
+            .build/arm64-apple-macosx/release/rife-metal \
+            .build/x86_64-apple-macosx/release/rife-metal \
+            -output "$staging/${UNIVERSAL_ARCHIVE_NAME}/bin/rife-metal"
+
+          chmod 755 "$staging/${UNIVERSAL_ARCHIVE_NAME}/bin/rife-metal"
+          cp -R ".build/arm64-apple-macosx/release/${RESOURCE_BUNDLE_NAME}" "$staging/${ARM64_ARCHIVE_NAME}/bin/"
+          cp -R ".build/x86_64-apple-macosx/release/${RESOURCE_BUNDLE_NAME}" "$staging/${X86_64_ARCHIVE_NAME}/bin/"
+          cp -R ".build/arm64-apple-macosx/release/${RESOURCE_BUNDLE_NAME}" "$staging/${UNIVERSAL_ARCHIVE_NAME}/bin/"
+          cp "$RIFE_WEIGHTS_PATH" "$staging/${ARM64_ARCHIVE_NAME}/share/rife-metal/"
+          cp "$RIFE_WEIGHTS_PATH" "$staging/${X86_64_ARCHIVE_NAME}/share/rife-metal/"
+          cp "$RIFE_WEIGHTS_PATH" "$staging/${UNIVERSAL_ARCHIVE_NAME}/share/rife-metal/"
+          cp LICENSE THIRD-PARTY.md "$staging/${ARM64_ARCHIVE_NAME}/"
+          cp LICENSE THIRD-PARTY.md "$staging/${X86_64_ARCHIVE_NAME}/"
+          cp LICENSE THIRD-PARTY.md "$staging/${UNIVERSAL_ARCHIVE_NAME}/"
+
+          tar -C "$staging" -czf "${ARM64_ARCHIVE_NAME}.tar.gz" "${ARM64_ARCHIVE_NAME}"
+          tar -C "$staging" -czf "${X86_64_ARCHIVE_NAME}.tar.gz" "${X86_64_ARCHIVE_NAME}"
+          tar -C "$staging" -czf "${UNIVERSAL_ARCHIVE_NAME}.tar.gz" "${UNIVERSAL_ARCHIVE_NAME}"
+          shasum -a 256 "${ARM64_ARCHIVE_NAME}.tar.gz" | tee "${ARM64_ARCHIVE_NAME}.tar.gz.sha256"
+          shasum -a 256 "${X86_64_ARCHIVE_NAME}.tar.gz" | tee "${X86_64_ARCHIVE_NAME}.tar.gz.sha256"
+          shasum -a 256 "${UNIVERSAL_ARCHIVE_NAME}.tar.gz" | tee "${UNIVERSAL_ARCHIVE_NAME}.tar.gz.sha256"
+
+      - name: Verify packaged CLI resources
+        run: |
+          set -euo pipefail
+          staging="$(mktemp -d)"
+          if [ "$(uname -m)" = "arm64" ]; then
+            archive="${ARM64_ARCHIVE_NAME}"
+          else
+            archive="${X86_64_ARCHIVE_NAME}"
+          fi
+          tar -xzf "${archive}.tar.gz" -C "$staging"
+          test -s "$staging/${archive}/share/rife-metal/${RIFE_WEIGHTS_FILE}"
+          test -n "$(find "$staging/${archive}/bin/${RESOURCE_BUNDLE_NAME}" -name default.metallib -type f -print -quit)"
+          "$staging/${archive}/bin/rife-metal" --help
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes "macOS CLI release for $tag. Use arm64 on Apple Silicon Macs, x86_64 on Intel Macs, or universal when one archive must cover both." \
+            "${ARM64_ARCHIVE_NAME}.tar.gz" \
+            "${ARM64_ARCHIVE_NAME}.tar.gz.sha256" \
+            "${X86_64_ARCHIVE_NAME}.tar.gz" \
+            "${X86_64_ARCHIVE_NAME}.tar.gz.sha256" \
+            "${UNIVERSAL_ARCHIVE_NAME}.tar.gz" \
+            "${UNIVERSAL_ARCHIVE_NAME}.tar.gz.sha256"
+
+      - name: Update shared Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not configured; skipping shared tap update."
+            exit 0
+          fi
+
+          tag="${{ steps.release.outputs.tag }}"
+          version="${tag#v}"
+          arm64_sha256="$(cut -d ' ' -f 1 "${ARM64_ARCHIVE_NAME}.tar.gz.sha256")"
+          x86_64_sha256="$(cut -d ' ' -f 1 "${X86_64_ARCHIVE_NAME}.tar.gz.sha256")"
+          repo_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          arm64_asset_url="${repo_url}/releases/download/${tag}/${ARM64_ARCHIVE_NAME}.tar.gz"
+          x86_64_asset_url="${repo_url}/releases/download/${tag}/${X86_64_ARCHIVE_NAME}.tar.gz"
+
+          tap_dir="$(mktemp -d)"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/cinemore/homebrew-tap.git" "$tap_dir"
+
+          ruby - "$tap_dir/Formula/rife-metal.rb" "$version" "$arm64_asset_url" "$arm64_sha256" "$x86_64_asset_url" "$x86_64_sha256" "$RIFE_WEIGHTS_FILE" <<'RUBY'
+          path, version, arm64_asset_url, arm64_sha256, x86_64_asset_url, x86_64_sha256, weights_file = ARGV
+          formula = File.read(path)
+          unless formula.include?('libexec.install "bin/RifeMetal_RifeMetalCore.bundle"')
+            anchor = '    libexec.install "bin/rife-metal"'
+            raise "Missing RIFE binary install rule" unless formula.include?(anchor)
+            formula = formula.sub(anchor, anchor + "\n    libexec.install \"bin/RifeMetal_RifeMetalCore.bundle\"")
+          end
+          formula = formula.sub(%r{version "[^"]+"}, %(version "#{version}"))
+          formula = formula.sub(%r{url "https://github\.com/cinemore/rife-metal/releases/download/[^"]+/rife-metal-macos-arm64\.tar\.gz"}, %(url "#{arm64_asset_url}"))
+          formula = formula.sub(%r{sha256 "[0-9a-f]{64}"\n  else}, %(sha256 "#{arm64_sha256}"\n  else))
+          formula = formula.sub(%r{url "https://github\.com/cinemore/rife-metal/releases/download/[^"]+/rife-metal-macos-x86_64\.tar\.gz"}, %(url "#{x86_64_asset_url}"))
+          formula = formula.sub(%r{sha256 "[0-9a-f]{64}"\n  end}, %(sha256 "#{x86_64_sha256}"\n  end))
+          formula = formula.gsub(%r{rife-v\d+(?:\.\d+)*\.rmw}, weights_file)
+          File.write(path, formula)
+          RUBY
+
+          cd "$tap_dir"
+          if git diff --quiet -- Formula/rife-metal.rb; then
+            echo "Shared tap formula already points at $tag"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/rife-metal.rb
+          git commit -m "chore: update rife-metal formula for ${tag}"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+
+            echo "Tap push failed on attempt ${attempt}; rebasing onto origin/main and retrying."
+            git pull --rebase origin main
+          done
+
+          git push origin HEAD:main

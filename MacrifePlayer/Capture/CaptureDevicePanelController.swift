@@ -407,7 +407,7 @@ final class CaptureDevicePanelController: NSWindowController {
         fake60Popup.action = #selector(onFake60Changed(_:))
         fake60Stack.addArrangedSubview(makeRow(label: "内容帧率:", control: fake60Popup))
 
-        let fake60Tip = NSTextField(labelWithString: "主机30FPS、HDMI 60Hz专用：60FPS采集，固定隔帧取样，AI补到60FPS；支持时使用Apple低延迟。60FPS游戏选原始输入。")
+        let fake60Tip = NSTextField(labelWithString: "主机30FPS、HDMI 60Hz专用：60FPS采集，固定隔帧取样，AI补到60FPS。补帧后端和光流分辨率在AI设置中独立选择。")
         fake60Tip.font = .systemFont(ofSize: 11, weight: .regular)
         fake60Tip.textColor = NSColor(white: 0.65, alpha: 1.0)
         fake60Stack.addArrangedSubview(fake60Tip)
@@ -981,9 +981,6 @@ final class CaptureDevicePanelController: NSWindowController {
                 return
             }
             PlaybackSettings.shared.rifeRateMode = .fps60
-            if #available(macOS 26.0, *) {
-                PlaybackSettings.shared.rifeModel = .appleLowLatency
-            }
         }
         let vIndex = max(0, min(videoDevicePopup.indexOfSelectedItem, videoDevices.count - 1))
         let selectedVideo = videoDevices[vIndex]
