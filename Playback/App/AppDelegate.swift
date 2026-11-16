@@ -48,24 +48,6 @@ import CoreMedia
 ///
 /// 优先级：环境变量 > 命令行。两者都没有 = 关闭，正常启动时这段是空转。
 /// 与其它 dev 开关一样，**不参与任何生产路径**。
-enum DevFlag {
-
-    /// 有没有打开这个开关。`--dump-stats` / `--dump-stats=x` 两种写法都算打开。
-    static func on(_ env: String, _ cli: String) -> Bool {
-        if ProcessInfo.processInfo.environment[env] != nil { return true }
-        return CommandLine.arguments.contains { $0 == cli || $0.hasPrefix(cli + "=") }
-    }
-
-    /// 取一个**带值**的开关：`MP_DUMP_DELAY=3` 或 `--dump-delay=3`。
-    /// 两个都没有时返回 nil（调用方自己给默认值）。
-    static func value(_ env: String, _ cli: String) -> String? {
-        if let v = ProcessInfo.processInfo.environment[env], !v.isEmpty { return v }
-        let prefix = cli + "="
-        return CommandLine.arguments
-            .first { $0.hasPrefix(prefix) }
-            .map { String($0.dropFirst(prefix.count)) }
-    }
-}
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -146,7 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 为什么需要：通过 `open` 起的进程不归当前 shell 管，dump 完不退出就会
         // 一直在窗口里放着，下一次跑又多一个实例（还会抢窗口焦点）。
         if DevFlag.on("MP_DUMP_EXIT", "--dump-exit") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + dumpDelay + 0.8) {
+            let captureHold = DevFlag.on("MP_CAPTURE_GO", "--capture-go")
+                ? max(0, Double(DevFlag.value("MP_CAPTURE_HOLD", "--capture-hold") ?? "") ?? 6.0) : 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + dumpDelay + captureHold + 0.8) {
                 NSApp.terminate(nil)
             }
         }
@@ -608,7 +592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///      MP_SET_METALFX=off|spatial
     ///      MP_SET_ANIME4K=off|on
     ///      MP_SET_DECODE=hardware|software
-    ///      MP_SET_RIFE_MODEL=lite425|full425|v426|heavy426
+    ///      MP_SET_RIFE_MODEL=v426|heavy426|appleLowLatency
     ///      MP_SET_RIFE_RES=sweet|normal|quality|top
     ///      MP_SET_WORKERS=6|8|10|12
     ///
@@ -748,7 +732,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func acceptOpenURLs(_ urls: [URL]) {
         // 目录不接：Info.plist 里没有「文件夹」这类声明，混进来只会让引擎报无意义的错。
-        let files = urls.filter { !$0.hasDirectoryPath }
+        let files = urls.filter {
+            !$0.hasDirectoryPath && !DevFlag.preferenceValueURLs.contains($0.standardizedFileURL)
+        }
         guard !files.isEmpty else { return }
 
         guard isReadyForOpen, let wc = windowController else {
@@ -1151,7 +1137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let hintItem = NSMenuItem(title: "💡 模型架构 (RIFE / FLAVR / DRBA) 与专属参数统一在详细配置中调控",
+        let hintItem = NSMenuItem(title: "💡 模型架构 (RIFE 4.26 / Apple 低延迟) 与专属参数统一在详细配置中调控",
                                   action: #selector(openRIFEConfigMenuAction(_:)),
                                   keyEquivalent: "")
         hintItem.target = self

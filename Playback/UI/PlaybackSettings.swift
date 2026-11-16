@@ -8,7 +8,7 @@
 //
 //  为什么要有「变更通知」而不是各自读写：
 //    同一个档位在**两个地方**显示 —— 菜单栏的勾选、控制条按钮的文字。
-//    比如「补帧 2X」：模型菜单里要勾上 RIFE 4.25，控制条要显示「补帧 ON」，
+//    比如「补帧 2X」：模型菜单里要勾上 RIFE 4.26，控制条要显示「补帧 ON」，
 //    状态胶囊要显示「RIFE 2X」。任一处改动都必须让另两处立刻跟上，
 //    所以统一走一条通知，由各视图自己重读 —— 而不是让改动方去挨个通知。
 
@@ -25,71 +25,6 @@ extension Notification.Name {
 
 // MARK: - 补帧模式（控制条按钮上的那条）
 
-/// RIFE 模型的四个可选变体。
-///
-/// 注意：这是 **Phase 2 新增的类型**，不是从二进制恢复的。
-/// 原版这里用的是 `RIFEModelVariant.allDirectoryNames`（一个目录名字符串数组，
-/// 观测到的成员只有 `allDirectoryNames`），实际条目名未能恢复。
-/// 下面四个名字直接来自文案表 `rife_model_425_lite` / `rife_model_425_high_quality` /
-/// `rife_model_426_high_quality` / `rife_model_426_heavy` —— 是**观测**，不是编的。
-/// 补帧模型大类
-enum ModelFamily: String, CaseIterable {
-    case rife
-    case flavr
-    case drba
-
-    var title: String {
-        switch self {
-        case .rife:  return "RIFE (光流残差金字塔 · 通用影视)"
-        case .flavr: return "FLAVR (3D时空卷积 · 纯ANE无光流)"
-        case .drba:  return "DistilDRBA (距离比例 · 动漫二次元专属)"
-        }
-    }
-}
-
-/// FLAVR 时空卷积核类型
-enum FLAVRKernelMode: String, CaseIterable {
-    case hermite
-    case catmullRom
-    case bSpline
-
-    var title: String {
-        switch self {
-        case .hermite:    return "Hermite-Lagrange 三次核 (推荐 · 最佳平滑)"
-        case .catmullRom: return "Catmull-Rom 锐化核 (发丝与边缘增强)"
-        case .bSpline:    return "B-Spline 柔和核 (抑制噪点与胶片颗粒)"
-        }
-    }
-}
-
-/// FLAVR 硬件后端偏好
-enum FLAVRBackend: String, CaseIterable {
-    case anePreferred
-    case metalGPU
-
-    var title: String {
-        switch self {
-        case .anePreferred: return "Apple Neural Engine (ANE 低功耗 · 静音)"
-        case .metalGPU:     return "Metal GPU (极限吞吐 · 满血渲染)"
-        }
-    }
-}
-
-/// DistilDRBA 动漫抽帧灵敏度
-enum DRBACadence: String, CaseIterable {
-    case low
-    case medium
-    case high
-
-    var title: String {
-        switch self {
-        case .low:    return "保守识别 (仅处理标准一拍二 · 12fps)"
-        case .medium: return "标准中等 (推荐 · 自动识别 8fps/12fps)"
-        case .high:   return "激进识别 (处理复杂混合抽帧动作)"
-        }
-    }
-}
-
 /// 反交错模式（解决 1080 50i/60i 隔行扫描拉丝，倍帧输出至 50/60 fps）
 enum DeinterlaceMode: String, CaseIterable {
     case auto    // 智能自动（识别 MTS/M2TS/TS 或隔行编码视频，自动倍帧至 50/60 FPS）
@@ -105,31 +40,29 @@ enum DeinterlaceMode: String, CaseIterable {
     }
 }
 
-/// 假 60 帧智能识别与重构模式（针对主机 30 FPS 质量模式接入采集卡）
+/// 手动指定主机实际帧率；沿用旧设置键以保留已有偏好。
 enum Fake60OptimizationMode: String, CaseIterable {
-    case auto    // 智能自动（识别 2:2 重复帧，自动将重复帧替换为真实 AI 补帧至真 60 帧）
-    case on      // 强制去重重构
-    case off     // 关闭识别与修复
+    case off
+    case on
 
     var title: String {
         switch self {
-        case .auto: return "智能自动 (推荐 · 检测 2:2 假60帧重构为真60帧)"
-        case .on:   return "强制重构 (对 60Hz 信号去重插帧)"
-        case .off:  return "关闭识别 (直通输出)"
+        case .on:   return "主机 30FPS（60FPS 采集 · AI 补到 60FPS）"
+        case .off:  return "原始输入（不抽帧）"
         }
     }
 }
 
 /// 采集卡/实时输入超低延迟模式
 enum CaptureLowLatencyMode: String, CaseIterable {
-    case extreme   // 极限电竞（1 帧极小缓冲 · 零拷贝直出 · 最低延迟）
-    case balanced  // 平衡抗抖动（2 帧缓冲 · 兼顾低延迟与平稳）
+    case extreme   // 极限电竞：最新输入，最多 2 对在途，保留 AI 补帧
+    case balanced  // 平衡抗抖动：2 帧输入，最多 3 对在途
     case off       // 标准缓冲（普通回放模式）
 
     var title: String {
         switch self {
-        case .extreme:  return "极限电竞 (1 帧缓冲 · 零拷贝直出 · 最低延迟)"
-        case .balanced: return "平衡抗抖动 (2 帧缓冲 · 兼顾低延迟与抗抖动)"
+        case .extreme:  return "极限电竞 (优先跟手 · 保留 AI 补帧)"
+        case .balanced: return "平衡抗抖动 (少量缓冲 · 保留 AI 补帧)"
         case .off:      return "标准缓冲 (普通回放模式)"
         }
     }
@@ -223,62 +156,38 @@ enum HDRToneMappingMode: String, CaseIterable {
     }
 }
 
+/// 当前支持的补帧模型；顺序同时用于配置面板。
 enum RIFEModelChoice: String, CaseIterable {
-    case lite425
-    case full425
     case v426
     case heavy426
-    case flavr2x
-    case flavrFast
-    case distilDRBA
+    case appleLowLatency
 
     var title: String {
         switch self {
-        case .lite425:   return L10n.t("rife_model_425_lite")
-        case .full425:   return L10n.t("rife_model_425_high_quality")
-        case .v426:      return L10n.t("rife_model_426_high_quality")
-        case .heavy426:  return L10n.t("rife_model_426_heavy")
-        case .flavr2x:   return "FLAVR 2X (3D时空卷积 · 无光流)"
-        case .flavrFast: return "FLAVR-Fast (极速纯ANE · 低能耗)"
-        case .distilDRBA: return "DistilDRBA (动漫二次元专属 · 距离比例调整)"
+        case .v426: return L10n.t("rife_model_426_high_quality")
+        case .heavy426: return L10n.t("rife_model_426_heavy")
+        case .appleLowLatency: return "Apple 低延迟 (720p AI · 原帧保真)"
+        }
+    }
+
+    var menuTitle: String {
+        switch self {
+        case .v426: return "RIFE v4.26 (新一代高画质 · 通用物理光流)"
+        case .heavy426: return "RIFE v4.26 Heavy (大位移重度光流 · 动作大片)"
+        case .appleLowLatency: return "Apple 低延迟 (720p 中间帧 · 原始帧保真 · macOS 26+)"
         }
     }
 
     var groupTitle: String {
         switch self {
-        case .lite425:            return L10n.t("rife_lite_mode")
-        case .full425, .v426:     return L10n.t("rife_full_mode")
-        case .heavy426:           return L10n.t("rife_heavy_model")
-        case .flavr2x, .flavrFast: return "FLAVR 无光流时空模型"
-        case .distilDRBA:         return "动漫专攻模型"
+        case .v426: return L10n.t("rife_full_mode")
+        case .heavy426: return L10n.t("rife_heavy_model")
+        case .appleLowLatency: return "Apple 原生低延迟"
         }
-    }
-
-    var family: ModelFamily {
-        switch self {
-        case .lite425, .full425, .v426, .heavy426:
-            return .rife
-        case .flavr2x, .flavrFast:
-            return .flavr
-        case .distilDRBA:
-            return .drba
-        }
-    }
-
-    var isFLAVR: Bool {
-        return family == .flavr
-    }
-
-    var isDRBA: Bool {
-        return family == .drba
     }
 
     var modelFamilyName: String {
-        switch family {
-        case .rife:  return "RIFE"
-        case .flavr: return "FLAVR"
-        case .drba:  return "DRBA"
-        }
+        self == .appleLowLatency ? "Apple" : "RIFE"
     }
 }
 
@@ -391,19 +300,10 @@ final class PlaybackSettings {
         case rifeLargeMotionAssist = "macrife.rifeLargeMotionAssist"
         case rifePyramidStages = "macrife.rifePyramidStages"
 
-        // FLAVR 专属定制
-        case flavrKernelMode = "macrife.flavrKernelMode"
-        case flavrBackend = "macrife.flavrBackend"
-
-        // DistilDRBA 专属定制
-        case drbaCadence = "macrife.drbaCadence"
-        case drbaLineArtPreservation = "macrife.drbaLineArtPreservation"
-        case drbaExaggeratedMotionGuard = "macrife.drbaExaggeratedMotionGuard"
-
         // 反交错设置 (MTS / 1080 50i/60i 隔行视频双场转 60 帧)
         case deinterlaceMode = "macrife.deinterlaceMode"
 
-        // 采集卡输入延迟与假 60 帧识别重构
+        // 采集卡输入延迟与手动主机30FPS模式
         case fake60FPSOptimization = "macrife.fake60FPSOptimization"
         case captureLowLatencyMode = "macrife.captureLowLatencyMode"
 
@@ -422,8 +322,6 @@ final class PlaybackSettings {
                  .rifeStaticFrameSkip, .rifeStaticThreshold, .rifeScaleFactor,
                  .rifeCustomTargetFps, .rifePrecision, .rifeQueueDepth,
                  .rifeFlowSmoothness, .rifeLargeMotionAssist, .rifePyramidStages,
-                 .flavrKernelMode, .flavrBackend,
-                 .drbaCadence, .drbaLineArtPreservation, .drbaExaggeratedMotionGuard,
                  .deinterlaceMode, .fake60FPSOptimization, .captureLowLatencyMode,
                  .metalFX, .anime4k, .anime4kPresetID, .anime4kSharpness, .anime4kDenoise, .decodeMode:
                 return true
@@ -486,20 +384,10 @@ final class PlaybackSettings {
                 return MPText.t("大运动补偿", "Large motion assist")
             case .rifePyramidStages:
                 return MPText.t("金字塔阶段", "Pyramid stages")
-            case .flavrKernelMode:
-                return MPText.t("FLAVR 卷积核", "FLAVR kernel")
-            case .flavrBackend:
-                return MPText.t("FLAVR 硬件后端", "FLAVR backend")
-            case .drbaCadence:
-                return MPText.t("DRBA 抽帧检测", "DRBA cadence")
-            case .drbaLineArtPreservation:
-                return MPText.t("线稿保真度", "Line-art preservation")
-            case .drbaExaggeratedMotionGuard:
-                return MPText.t("夸张动作保护", "Exaggerated motion guard")
             case .deinterlaceMode:
                 return MPText.t("反交错模式", "Deinterlace mode")
             case .fake60FPSOptimization:
-                return MPText.t("假 60 帧识别重构", "Fake 60 FPS optimization")
+                return MPText.t("主机 30FPS 模式", "Console 30 FPS mode")
             case .captureLowLatencyMode:
                 return MPText.t("采集卡低延迟", "Capture low latency")
             case .captureColorRange:
@@ -516,6 +404,11 @@ final class PlaybackSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // 已移除模型的旧偏好迁移到默认模型，避免重启后仍保留失效选择。
+        if let raw = defaults.string(forKey: Key.rifeModel.rawValue),
+           RIFEModelChoice(rawValue: raw) == nil {
+            defaults.set(RIFEModelChoice.v426.rawValue, forKey: Key.rifeModel.rawValue)
+        }
     }
 
     // MARK: 补帧
@@ -690,45 +583,6 @@ final class PlaybackSettings {
         }
     }
 
-    // 2. FLAVR 专属
-    var flavrKernelMode: FLAVRKernelMode {
-        get { enumValue(Key.flavrKernelMode, default: .hermite) }
-        set { setEnum(Key.flavrKernelMode, newValue) }
-    }
-
-    var flavrBackend: FLAVRBackend {
-        get { enumValue(Key.flavrBackend, default: .anePreferred) }
-        set { setEnum(Key.flavrBackend, newValue) }
-    }
-
-    // 3. DistilDRBA 专属
-    var drbaCadence: DRBACadence {
-        get { enumValue(Key.drbaCadence, default: .medium) }
-        set { setEnum(Key.drbaCadence, newValue) }
-    }
-
-    var drbaLineArtPreservation: Double {
-        get {
-            if defaults.object(forKey: Key.drbaLineArtPreservation.rawValue) == nil { return 0.85 }
-            return max(0.0, min(1.0, defaults.double(forKey: Key.drbaLineArtPreservation.rawValue)))
-        }
-        set {
-            defaults.set(max(0.0, min(1.0, newValue)), forKey: Key.drbaLineArtPreservation.rawValue)
-            notify(.drbaLineArtPreservation)
-        }
-    }
-
-    var drbaExaggeratedMotionGuard: Bool {
-        get {
-            if defaults.object(forKey: Key.drbaExaggeratedMotionGuard.rawValue) == nil { return true }
-            return defaults.bool(forKey: Key.drbaExaggeratedMotionGuard.rawValue)
-        }
-        set {
-            defaults.set(newValue, forKey: Key.drbaExaggeratedMotionGuard.rawValue)
-            notify(.drbaExaggeratedMotionGuard)
-        }
-    }
-
     /// 反交错模式（解决 1080 50i/60i 隔行扫描拉丝，倍帧输出至 50/60 fps）。
     var deinterlaceMode: DeinterlaceMode {
         get { enumValue(Key.deinterlaceMode, default: .auto) }
@@ -736,7 +590,7 @@ final class PlaybackSettings {
     }
 
     var fake60FPSOptimization: Fake60OptimizationMode {
-        get { enumValue(Key.fake60FPSOptimization, default: .auto) }
+        get { enumValue(Key.fake60FPSOptimization, default: .off) }
         set { setEnum(Key.fake60FPSOptimization, newValue) }
     }
 
@@ -783,13 +637,8 @@ final class PlaybackSettings {
         rifeFlowSmoothness = 1.0
         rifeLargeMotionAssist = true
         rifePyramidStages = 3
-        flavrKernelMode = .hermite
-        flavrBackend = .anePreferred
-        drbaCadence = .medium
-        drbaLineArtPreservation = 0.85
-        drbaExaggeratedMotionGuard = true
         deinterlaceMode = .auto
-        fake60FPSOptimization = .auto
+        fake60FPSOptimization = .off
         captureLowLatencyMode = .balanced
     }
 

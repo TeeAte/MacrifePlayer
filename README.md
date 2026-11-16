@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-macOS%2015.0%2B-blue?logo=apple" alt="macOS 15.0+" />
   <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20(arm64)-orange" alt="Apple Silicon" />
   <img src="https://img.shields.io/badge/Render-Metal%203%20%7C%20MetalFX-purple" alt="Metal 3" />
-  <img src="https://img.shields.io/badge/AI%20Engine-RIFE%20%7C%20FLAVR%20%7C%20DRBA-green" alt="AI Engine" />
+  <img src="https://img.shields.io/badge/AI%20Engine-RIFE%204.26%20%7C%20Apple-green" alt="AI Engine" />
   <img src="https://img.shields.io/badge/Core-FFmpeg%20%7C%20VideoToolbox-red" alt="Core" />
   <img src="https://img.shields.io/badge/Language-Swift%205.10%2B-FA7343?logo=swift" alt="Swift" />
   <img src="https://img.shields.io/badge/Version-0.4.0-informational" alt="Version" />
@@ -24,7 +24,7 @@
 
 **Macrife Player** 是一款深度适配 **macOS Sequoia (15.0+)** 与 **Apple Silicon** 架构的高性能视频播放器。项目摒弃了跨平台框架的性能损耗，基于纯原生 **AppKit + Metal 3 + Apple Neural Engine (ANE)** 构建端到端硬件加速管线。
 
-播放器集成了 **多架构实时 AI 视频插帧（RIFE / FLAVR / DistilDRBA）**、**MetalFX 空间超分辨率**、**Anime4K 动漫画质增强**、**电影级 HDR 转 SDR 色调映射** 以及 **UVC 主机采集卡低延迟电竞重构** 等前沿技术，致力于为 Apple Silicon Mac 用户带来丝滑、高画质且能效兼备的观影与主机游戏串流体验。
+播放器集成了 **实时 AI 视频插帧（RIFE 4.26 / Apple 低延迟）**、**MetalFX 空间超分辨率**、**Anime4K 动漫画质增强**、**电影级 HDR 转 SDR 色调映射** 以及 **UVC 主机采集卡低延迟电竞重构** 等前沿技术，致力于为 Apple Silicon Mac 用户带来丝滑、高画质且能效兼备的观影与主机游戏串流体验。
 
 ---
 
@@ -32,9 +32,8 @@
 
 ### 🎬 1. 多架构实时 AI 补帧系统
 - **三套算法内核自由切换**：
-  - **RIFE 系列（光流残差金字塔）**：适配影视、纪录片与常规视频，提供 `4.25 Lite`、`4.25 HQ`、`4.26 HQ` 以及 `4.26 Heavy` 四种规格，支持 FP16 / FP32 精度切换。
-  - **FLAVR 引擎（3D 时空卷积）**：无光流伪影，针对 Apple Neural Engine (ANE) 低功耗架构专属优化，内置 Hermite-Lagrange、Catmull-Rom 锐化与 B-Spline 三大卷积核。
-  - **DistilDRBA 引擎（动漫二次元专属）**：基于距离比例算法，专攻 2D 动画。智能识别一拍二（12fps）与一拍三（8fps）抽帧节拍，具备线稿保护与夸张形变防撕裂。
+  - **RIFE 系列（光流残差金字塔）**：适配影视、纪录片与常规视频，提供 `4.26 HQ` 与 `4.26 Heavy` 两种规格，支持 FP16 / FP32 精度切换。
+  - **Apple 低延迟**：macOS 26+ 下支持 2X 插帧，原始帧保持源画质，中间帧最多在 720p 生成后恢复源尺寸；其他帧率或不支持的系统回退到 RIFE。
 - **丰富的补帧目标倍率**：支持 `2X`、`3X`、`4X`、`5X` 倍帧，以及强制 `60 FPS`、`120 FPS`（匹配 ProMotion 刷新率）和自定义目标帧率（30~240 FPS）。
 - **智能场景转场保护（Scene Detection）**：实时计算前后帧运动直方图与特征相似度，遇到剪辑切镜转场时自动抑制插帧，彻底消除转场鬼影。
 - **静止画面节能检测（Static Frame Skip）**：检测到画面静止或微小变动时自动跳过神经网络推理，显著降低 MacBook 续航与发热。
@@ -95,9 +94,8 @@ flowchart TD
         SceneDetect["镜头转场检测 & 静止帧节能过滤"]
         
         subgraph Models ["补帧模型引擎"]
-            RIFE["RIFE 4.25/4.26\n(光流残差金字塔)"]
-            FLAVR["FLAVR 2X/Fast\n(3D-CNN / ANE 专属)"]
-            DRBA["DistilDRBA\n(动漫专属距离比例)"]
+            RIFE["RIFE 4.26\n(光流残差金字塔)"]
+            Apple["Apple 低延迟\n(720p 中间帧 / 原帧保真)"]
         end
     end
 
@@ -137,9 +135,8 @@ flowchart TD
 
 | 模型架构 | 核心原理 | 优势特点 | 适用场景 | 功耗与推荐设备 |
 | :--- | :--- | :--- | :--- | :--- |
-| **RIFE 4.25 / 4.26** | 双向光流残差金字塔 (Coarse-to-fine) | 真实运动估计，大动态场景平滑连贯 | 真人电影、电视剧、体育赛事、动作大片 | GPU 吞吐型，推荐 M1/M2/M3 Pro/Max/Ultra |
-| **FLAVR** | 3D 时空卷积 (Spatiotemporal Conv) | 纯卷积直出、无光流扭曲伪影，时序过渡极佳 | 追求极致静音低功耗观影、中等运动幅度视频 | ANE (神经网络引擎) 优化，适合 MacBook Air / 电池模式 |
-| **DistilDRBA** | 距离比例调整 (Distance-Ratio Based) | 保持手绘线条轮廓锐利、专攻 8fps/12fps 抽帧动作 | 日本番剧、2D 手绘动画、二次元动画短片 | 极佳的动漫线条防撕裂，全系列 Apple Silicon 均推荐 |
+| **RIFE 4.26 / 4.26 Heavy** | 双向光流残差金字塔 (Coarse-to-fine) | 真实运动估计，大动态场景平滑连贯 | 真人电影、电视剧、体育赛事、动作大片 | GPU 吞吐型，推荐 M1/M2/M3 Pro/Max/Ultra |
+| **Apple 低延迟** | Apple 原生插帧 | 原始帧保留源画质，中间帧最多以 720p 生成后放大 | 采集输入、优先跟手的 2X 插帧 | macOS 26+；其他帧率或不支持的系统回退 RIFE |
 
 ---
 
@@ -224,7 +221,7 @@ MacrifePlayer/
 │   ├── FFmpeg/                 # FFmpeg 音视频与字幕解封装封装适配层
 │   ├── Media/                  # 媒体会话、网络流管理与轨道管理器
 │   ├── Metal/                  # Metal 零拷贝纹理视图与 MetalFX 空间超分辨率
-│   ├── RIFE/                   # RIFE / FLAVR / DRBA 补帧引擎、张量工作区与转场检测
+│   ├── RIFE/                   # RIFE 补帧引擎、张量工作区与转场检测
 │   ├── Subtitle/               # libass 与 PGS 位图字幕解析及渲染
 │   ├── Support/                # 色彩空间管线、反交错器、主线程卡顿监视与日志工具
 │   └── UI/                     # 控制器状态、播放列表与命令中心

@@ -252,7 +252,7 @@ final class CaptureDevicePanelController: NSWindowController {
         titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
         titleLabel.textColor = .white
 
-        let subLabel = NSTextField(labelWithString: "检测 HDMI/USB 采集卡输入，配置输入延迟与 60Hz 假 60 帧智能重构")
+        let subLabel = NSTextField(labelWithString: "配置 HDMI/USB 采集、低延迟与主机 30FPS 补帧模式")
         subLabel.font = .systemFont(ofSize: 11, weight: .regular)
         subLabel.textColor = NSColor(white: 0.65, alpha: 1.0)
 
@@ -383,7 +383,7 @@ final class CaptureDevicePanelController: NSWindowController {
         latencyPopup.action = #selector(onLatencyChanged(_:))
         latencyStack.addArrangedSubview(makeRow(label: "延迟模式:", control: latencyPopup))
 
-        let latencyTip = NSTextField(labelWithString: "⚡️ 极限模式跳过音视频时钟等待，采集帧直通 Metal 渲染流水线，跟手无感操作。")
+        let latencyTip = NSTextField(labelWithString: "⚡️ 两种低延迟模式均保留 AI 补帧。极限模式优先跟手，平衡模式多留少量抗抖动余量；过载时跳过旧画面追上实时输入。")
         latencyTip.font = .systemFont(ofSize: 11, weight: .regular)
         latencyTip.textColor = NSColor(white: 0.65, alpha: 1.0)
         latencyStack.addArrangedSubview(latencyTip)
@@ -395,8 +395,8 @@ final class CaptureDevicePanelController: NSWindowController {
         rootStack.addArrangedSubview(latencyCard.container)
         latencyCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
 
-        // 5. 卡片：主机游戏 60Hz 假 60 帧识别重构
-        let fake60Card = makeCardView(title: "5. 主机 60Hz 假 60 帧识别重构 (Fake 60 FPS)")
+        // 5. 卡片：手动指定主机30FPS／60FPS采集
+        let fake60Card = makeCardView(title: "5. 主机 30FPS 模式")
         let fake60Stack = NSStackView()
         fake60Stack.orientation = .vertical
         fake60Stack.alignment = .leading
@@ -405,9 +405,9 @@ final class CaptureDevicePanelController: NSWindowController {
         fake60Popup.addItems(withTitles: Fake60OptimizationMode.allCases.map { $0.title })
         fake60Popup.target = self
         fake60Popup.action = #selector(onFake60Changed(_:))
-        fake60Stack.addArrangedSubview(makeRow(label: "假60重构:", control: fake60Popup))
+        fake60Stack.addArrangedSubview(makeRow(label: "内容帧率:", control: fake60Popup))
 
-        let fake60Tip = NSTextField(labelWithString: "🎮 针对 PS5/Switch/Xbox 30 FPS 画质模式在 HDMI 60Hz 信号下的重复帧，自动 AI 补帧升级为满血 60 FPS！")
+        let fake60Tip = NSTextField(labelWithString: "主机30FPS、HDMI 60Hz专用：60FPS采集，固定隔帧取样，AI补到60FPS；支持时使用Apple低延迟。60FPS游戏选原始输入。")
         fake60Tip.font = .systemFont(ofSize: 11, weight: .regular)
         fake60Tip.textColor = NSColor(white: 0.65, alpha: 1.0)
         fake60Stack.addArrangedSubview(fake60Tip)
@@ -547,6 +547,16 @@ final class CaptureDevicePanelController: NSWindowController {
     /// 旧版的问题恰恰是「列表上是 A、交出去的是 B」（选 4K 交出去 1080p、选 60 交出去预设值）。
     /// 光看列表对不对证明不了契约，必须把真正交出去的那四个值打出来。
     func devStart() {
+        if let raw = DevFlag.value("MP_CAPTURE_FPS", "--capture-fps"), let requested = Double(raw) {
+            let index = formatPopup.indexOfSelectedItem
+            guard formatOptions.indices.contains(index),
+                  let rateIndex = formatOptions[index].frameRates.firstIndex(where: { abs($0 - requested) < 0.1 }) else {
+                NSLog("[Capture] 测试请求的帧率不受当前规格支持: %@", raw)
+                return
+            }
+            fpsPopup.selectItem(at: rateIndex)
+            updateFormatDetail()
+        }
         onStartClicked(nil)
     }
 
@@ -922,7 +932,29 @@ final class CaptureDevicePanelController: NSWindowController {
         let idx = fake60Popup.indexOfSelectedItem
         if idx >= 0 && idx < Fake60OptimizationMode.allCases.count {
             PlaybackSettings.shared.fake60FPSOptimization = Fake60OptimizationMode.allCases[idx]
+            if Fake60OptimizationMode.allCases[idx] == .on {
+                _ = selectConsole30CaptureRate()
+            }
         }
+    }
+
+    /// Use a real device-reported 60Hz range, keeping its precise CMTime.
+    private func selectConsole30CaptureRate() -> Bool {
+        var index = formatPopup.indexOfSelectedItem
+        if !formatOptions.indices.contains(index)
+            || !formatOptions[index].frameRates.contains(where: { (55...65).contains($0) }) {
+            guard let candidate = formatOptions.firstIndex(where: {
+                $0.isNativeNV12 && $0.width == 1920 && $0.height == 1080
+                    && $0.frameRates.contains(where: { (55...65).contains($0) })
+            }) else { return false }
+            index = candidate
+            formatPopup.selectItem(at: index)
+            reloadFrameRates()
+        }
+        guard let rate = formatOptions[index].frameRates.firstIndex(where: { (55...65).contains($0) }) else { return false }
+        fpsPopup.selectItem(at: rate)
+        updateFormatDetail()
+        return true
     }
 
     @objc private func onColorChanged(_ sender: Any?) {
@@ -942,6 +974,17 @@ final class CaptureDevicePanelController: NSWindowController {
 
     @objc private func onStartClicked(_ sender: Any?) {
         guard !videoDevices.isEmpty else { return }
+        onFake60Changed(self)
+        if PlaybackSettings.shared.fake60FPSOptimization == .on {
+            guard selectConsole30CaptureRate() else {
+                deviceStatusLabel.stringValue = "当前设备不支持 60FPS 采集，请选择原始输入"
+                return
+            }
+            PlaybackSettings.shared.rifeRateMode = .fps60
+            if #available(macOS 26.0, *) {
+                PlaybackSettings.shared.rifeModel = .appleLowLatency
+            }
+        }
         let vIndex = max(0, min(videoDevicePopup.indexOfSelectedItem, videoDevices.count - 1))
         let selectedVideo = videoDevices[vIndex]
 

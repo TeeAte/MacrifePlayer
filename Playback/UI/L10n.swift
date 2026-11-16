@@ -105,7 +105,6 @@ enum L10n {
         "rife_lite_mode", "rife_full_mode",
         "rife_worker_6", "rife_worker_8", "rife_worker_10", "rife_worker_12",
         "rife_worker_count",
-        "rife_model_425_lite", "rife_model_425_high_quality",
         "rife_model_426_high_quality", "rife_model_426_heavy",
         "rife_resolution_sweet", "rife_resolution_normal",
         "rife_resolution_quality", "rife_resolution_top",

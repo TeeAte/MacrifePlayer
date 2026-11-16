@@ -31,8 +31,7 @@
 //  下面按这个面实现 —— 名字是读出来的，不是编的。
 //
 //  仍未确定的（别当成结论）：
-//   · `needsTimelineResample` 的具体语义。池里有这个名字，但取值无从得知。
-//     按命名与 `fps60` 的特殊性推断为「输出帧率不是源帧率的整数倍，需重采样时间轴」。
+//   · 固定目标帧率使用时间轴网格；倍率档使用固定比例（采集低延迟回归已覆盖）。
 //   · `userSelectableCases` 与 `allCases` 的区别。当前 6 个 case 全部可选，
 //     保留这个入口只为将来加内部档位时不必改调用点。
 //   · MetalFX 的档位枚举（`MetalFXTargetMode` / `MetalFXSpatialTargetMode`）**没找到 case 名**，
@@ -102,12 +101,9 @@ enum RIFERateMode: String, CaseIterable {
         }
     }
 
-    /// 是否走「目标帧率」分支而不是整数倍插帧。
-    /// 逆向对齐原版 `$s11MetalPlayer12RIFERateModeO21needsTimelineResample9sourceFPSSbSd_tF`:
-    /// 当且仅当 sourceFPS < 29.0 且处于 .fps60 / .fps120 / .customFps 时才需要时间轴重采样；
-    /// 若输入本身 >= 29.0 (如 30fps/60fps)，30fps 转 60fps 自然对齐 2X 整倍，无需小数时间轴重采样。
+    /// 固定目标帧率始终按目标网格重采样。按源帧率是否低于 29 来选分支，
+    /// 会把 60→60 错当 2X、30→120 错当 2X，造成多余推理或错误输出帧率。
     func needsTimelineResample(sourceFPS: Double) -> Bool {
-        guard sourceFPS < 29.0 else { return false }
         switch self {
         case .fps60, .fps120, .customFps: return true
         default: return false

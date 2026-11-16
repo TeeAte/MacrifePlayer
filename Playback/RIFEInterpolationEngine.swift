@@ -401,7 +401,6 @@ final class RIFEInterpolationEngine {
         lastSampledLuma = nil
         timelineCursorPTS = -1.0
         isInterpolating = false
-        CadenceDetector.shared.reset()
     }
 
     // MARK: - 主插值逻辑 (对齐原版 runRIFELoopParallel 与 runRIFETimelineResampleLoop)

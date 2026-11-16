@@ -22,78 +22,7 @@ import CFFmpeg
 
 // MARK: - 有界阻塞队列
 
-final class BoundedQueue<T> {
-
-    private let condition = NSCondition()
-    private var items: [T] = []
-    private let capacity: Int
-    private var closed = false
-
-    init(capacity: Int) {
-        self.capacity = max(1, capacity)
-    }
-
-    var count: Int {
-        condition.lock(); defer { condition.unlock() }
-        return items.count
-    }
-
-    var isEmpty: Bool { count == 0 }
-
-    /// 入队。队列满时最多等 `timeout` 秒；超时返回 false（元素没有被消耗）。
-    @discardableResult
-    func push(_ item: T, timeout: TimeInterval = 0.1) -> Bool {
-        condition.lock()
-        defer { condition.unlock() }
-        let deadline = Date().addingTimeInterval(timeout)
-        while items.count >= capacity && !closed {
-            if !condition.wait(until: deadline) { return false }
-        }
-        if closed { return false }
-        items.append(item)
-        condition.signal()
-        return true
-    }
-
-    /// 出队。空队列会阻塞等待。队列被 close 且排空时返回 nil。
-    func pop() -> T? {
-        condition.lock()
-        defer { condition.unlock() }
-        while items.isEmpty && !closed { condition.wait() }
-        return items.isEmpty ? nil : items.removeFirst()
-    }
-
-    /// 非阻塞出队。
-    func tryPop() -> T? {
-        condition.lock()
-        defer { condition.unlock() }
-        return items.isEmpty ? nil : items.removeFirst()
-    }
-
-    /// 清空。用于 seek —— 必须广播唤醒等待者，否则生产者/消费者会卡在旧状态上。
-    func flush() {
-        condition.lock()
-        items.removeAll()
-        condition.broadcast()
-        condition.unlock()
-    }
-
-    func close() {
-        condition.lock()
-        closed = true
-        condition.broadcast()
-        condition.unlock()
-    }
-
-    /// 重新启用（配合 close 用于「停止 → 换文件」的复用）。
-    func reopen() {
-        condition.lock()
-        closed = false
-        items.removeAll()
-        condition.broadcast()
-        condition.unlock()
-    }
-}
+// BoundedQueue 定义在 BoundedQueue.swift，独立于 FFmpeg 以便验证并发行为。
 
 // MARK: - RIFE 重排缓冲（乱序完成、按序消费）
 

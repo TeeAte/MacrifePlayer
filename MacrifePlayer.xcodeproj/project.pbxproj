@@ -180,9 +180,7 @@
 		A1F4D0012D8C010100000001 /* ModelPackageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4D0022D8C010100000001 /* ModelPackageManager.swift */; };
 		A1F4E1012D8C010100000001 /* CoreMLRIFEEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4E1022D8C010100000001 /* CoreMLRIFEEngine.swift */; };
 		A1F4E0012D8C010100000001 /* RIFEInterpolationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4E0022D8C010100000001 /* RIFEInterpolationEngine.swift */; };
-		A1F4E0032D8C010100000001 /* FLAVRInterpolationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4E0042D8C010100000001 /* FLAVRInterpolationEngine.swift */; };
 		A1F4E0052D8C010100000001 /* Deinterlacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4E0062D8C010100000001 /* Deinterlacer.swift */; };
-		A1F4F0012D8C010100000001 /* CadenceDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4F0022D8C010100000001 /* CadenceDetector.swift */; };
 		A231FF0AD632C624FDEACE88 /* libx264.164.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7CA4890AB76CB577C43C12E2 /* libx264.164.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A449117D8D0360809FCEA722 /* libbrotlidec.1.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60E867EC66849452EF7BA5 /* libbrotlidec.1.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A47348492390DF8E568183DE /* Anime4K_Restore_CNN_Soft_VL.json in Resources */ = {isa = PBXBuildFile; fileRef = 70DCD5E3B1B7592BBF83CA4D /* Anime4K_Restore_CNN_Soft_VL.json */; };
@@ -291,6 +289,10 @@
 		FDA912CF40B8EA62E939567E /* libdav1d.7.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 769F61B8DE60BE54E7CDCF7B /* libdav1d.7.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		FF8BD05E6C2E1E552FE39496 /* VideoPacketQueuePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C577FCAC4CA7ACEC7A7C19 /* VideoPacketQueuePolicy.swift */; };
 		FFE0B9EA66789C8A5631E0D0 /* RIFEHeavyTensorBufferPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76929C2647CDFBF73089545 /* RIFEHeavyTensorBufferPool.swift */; };
+		A1F4C1012D8C0101000000B0 /* BoundedQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B0 /* BoundedQueue.swift */; };
+		A1F4C1012D8C0101000000B1 /* LiveCapturePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B1 /* LiveCapturePipeline.swift */; };
+		A1F4C1012D8C0101000000B2 /* DevFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B2 /* DevFlag.swift */; };
+		A1F4C1012D8C0101000000B3 /* AppleLowLatencyInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -572,9 +574,7 @@
 		A1F4D0022D8C010100000001 /* ModelPackageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPackageManager.swift; sourceTree = "<group>"; };
 		A1F4E1022D8C010100000001 /* CoreMLRIFEEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreMLRIFEEngine.swift; sourceTree = "<group>"; };
 		A1F4E0022D8C010100000001 /* RIFEInterpolationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFEInterpolationEngine.swift; sourceTree = "<group>"; };
-		A1F4E0042D8C010100000001 /* FLAVRInterpolationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLAVRInterpolationEngine.swift; sourceTree = "<group>"; };
 		A1F4E0062D8C010100000001 /* Deinterlacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deinterlacer.swift; sourceTree = "<group>"; };
-		A1F4F0022D8C010100000001 /* CadenceDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CadenceDetector.swift; sourceTree = "<group>"; };
 		A5E68541C0B874B735E542AD /* RIFEVideoFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFEVideoFrame.swift; sourceTree = "<group>"; };
 		A6D370D391FD7C92FB7F5D75 /* DistilDRBAV2LiteRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistilDRBAV2LiteRuntime.swift; sourceTree = "<group>"; };
 		A6FDE331592A1B5E5FA05F05 /* libcrypto.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libcrypto.3.dylib; sourceTree = "<group>"; };
@@ -661,6 +661,10 @@
 		FBD251C0271F0C6B50F8C5B8 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
 		FD77C4264679A430F9F5C778 /* libintl.8.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libintl.8.dylib; sourceTree = "<group>"; };
 		FE91E661A12AB6A16170DC70 /* RIFEHeavyEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFEHeavyEngine.swift; sourceTree = "<group>"; };
+		A1F4C1022D8C0101000000B0 /* BoundedQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedQueue.swift; sourceTree = "<group>"; };
+		A1F4C1022D8C0101000000B1 /* LiveCapturePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCapturePipeline.swift; sourceTree = "<group>"; };
+		A1F4C1022D8C0101000000B2 /* DevFlag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevFlag.swift; sourceTree = "<group>"; };
+		A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleLowLatencyInterpolator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1018,14 +1022,15 @@
 				ACDA168B17E96E5651FC2901 /* FrameDumper.swift */,
 				9A5001874F06E0101C14814A /* MediaDetail.swift */,
 				AA55F6074413F7B4E9DD971F /* MediaFileSource.swift */,
+				A1F4C1022D8C0101000000B0 /* BoundedQueue.swift */,
+				A1F4C1022D8C0101000000B1 /* LiveCapturePipeline.swift */,
+				A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */,
 				39DD7B8C2D5521DFEBD514B0 /* PipelinePrimitives.swift */,
 				386A4DCF0250608F4B4295C5 /* PlaybackEngine.swift */,
 				A1F4D0022D8C010100000001 /* ModelPackageManager.swift */,
 				A1F4E1022D8C010100000001 /* CoreMLRIFEEngine.swift */,
 				A1F4E0022D8C010100000001 /* RIFEInterpolationEngine.swift */,
-				A1F4E0042D8C010100000001 /* FLAVRInterpolationEngine.swift */,
 				A1F4E0062D8C010100000001 /* Deinterlacer.swift */,
-				A1F4F0022D8C010100000001 /* CadenceDetector.swift */,
 				54F959D1ED5DE26826882AEA /* PlaybackStats.swift */,
 				BDF56BE344B64634F1EA1236 /* PlayerOptions.swift */,
 				F8EF8065857278DD2211AE90 /* VideoDecoder.swift */,
@@ -1059,6 +1064,7 @@
 		977FA02640CF5BE0618F5AFC /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A1F4C1022D8C0101000000B2 /* DevFlag.swift */,
 				72687947438844342E43D137 /* AppDelegate.swift */,
 			);
 			path = App;
@@ -1443,6 +1449,7 @@
 				5D9DBF40B0D031886441DB5A /* DistilDRBAV2LiteCoreMLModels.swift in Sources */,
 				9C6F869CA3D1B76CFD98976E /* DistilDRBAV2LiteRuntime.swift in Sources */,
 				CF3D563BA46A9139D9CDC0ED /* AVSyncClock.swift in Sources */,
+				A1F4C1012D8C0101000000B2 /* DevFlag.swift in Sources */,
 				A57A22AB6AC37273A587C3A7 /* AppDelegate.swift in Sources */,
 				AC78AEFDFCD8C31237CEE810 /* AudioDecoder.swift in Sources */,
 				BC4E5DA36B8C53DF783CF39E /* AudioOutput.swift in Sources */,
@@ -1451,6 +1458,9 @@
 				7506A8D0CD6A28DAECD56099 /* TrackInfo.swift in Sources */,
 				E3EF1755901980B4F6AD4546 /* MediaDetail.swift in Sources */,
 				FACAC615C22F8CE1522C3186 /* MediaFileSource.swift in Sources */,
+				A1F4C1012D8C0101000000B0 /* BoundedQueue.swift in Sources */,
+				A1F4C1012D8C0101000000B1 /* LiveCapturePipeline.swift in Sources */,
+				A1F4C1012D8C0101000000B3 /* AppleLowLatencyInterpolator.swift in Sources */,
 				D29EF87D172FE61B4FBD88F8 /* PipelinePrimitives.swift in Sources */,
 				96C355A470526C1132B8568D /* PlaybackEngine.swift in Sources */,
 				6DBF7102AD64F4C27184B475 /* PlaybackStats.swift in Sources */,
@@ -1475,9 +1485,7 @@
 				A1F4D0012D8C010100000001 /* ModelPackageManager.swift in Sources */,
 				A1F4E1012D8C010100000001 /* CoreMLRIFEEngine.swift in Sources */,
 				A1F4E0012D8C010100000001 /* RIFEInterpolationEngine.swift in Sources */,
-				A1F4E0032D8C010100000001 /* FLAVRInterpolationEngine.swift in Sources */,
 				A1F4E0052D8C010100000001 /* Deinterlacer.swift in Sources */,
-				A1F4F0012D8C010100000001 /* CadenceDetector.swift in Sources */,
 				DE9300CFA3B829B63186F40A /* TimeFormat.swift in Sources */,
 				D255FA4FADB2DE4746E3158C /* ViewSnapshot.swift in Sources */,
 				E1B45A0D8AA5CC1730AE01B2 /* VideoDecoder.swift in Sources */,

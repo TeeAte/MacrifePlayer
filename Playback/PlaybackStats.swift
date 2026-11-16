@@ -66,6 +66,11 @@ struct PlaybackCounters {
     var captureDeliveredFPS: Double = 0
     /// 采集卡：本次解析出的色彩信息（矩阵 / 范围 / 来源）
     var captureColorInfo = ""
+    /// 最新采集回调到显示取帧的滞后估计；不含采集卡、USB 传输或屏幕扫描延迟。
+    var capturePipelineLatencyMS: Double?
+    var captureLatencyP50MS: Double?
+    var captureLatencyP95MS: Double?
+    var captureProcessingDepth = ""
 
     static let empty = PlaybackCounters()
 }
@@ -101,6 +106,11 @@ struct PlaybackRuntimeStats {
     var captureDeliveredFPS: Double = 0
     /// 采集卡解析出的色彩信息（矩阵 / 范围 / 来源）
     var captureColorInfo = ""
+    /// 最新采集回调到显示取帧的滞后估计；不含采集卡、USB 传输或屏幕扫描延迟。
+    var capturePipelineLatencyMS: Double?
+    var captureLatencyP50MS: Double?
+    var captureLatencyP95MS: Double?
+    var captureProcessingDepth = ""
 
     var cpuPercent: Double = 0
     /// 常驻物理内存（RSS）
@@ -121,10 +131,7 @@ struct PlaybackRuntimeStats {
 /// 不要用「假装是 60」之类的方式填充。
 final class StatsSampler {
 
-    private var lastSampleTime: TimeInterval = 0
-    private var lastPresented = 0
-    private var lastDecoded = 0
-    private var lastPresentedPTS: Double = -1
+    private var frameRateWindow = FrameRateWindow()
 
     /// 系统指标采样器（进程自身）。
     private let system = SystemMetricsSampler()
@@ -157,24 +164,15 @@ final class StatsSampler {
         out.anime4kStatusText = counters.anime4kStatusText
         out.captureDeliveredFPS = counters.captureDeliveredFPS
         out.captureColorInfo = counters.captureColorInfo
+        out.capturePipelineLatencyMS = counters.capturePipelineLatencyMS
+        out.captureLatencyP50MS = counters.captureLatencyP50MS
+        out.captureLatencyP95MS = counters.captureLatencyP95MS
+        out.captureProcessingDepth = counters.captureProcessingDepth
 
-        let now = Date.timeIntervalSinceReferenceDate
-        if lastSampleTime > 0 {
-            let dt = now - lastSampleTime
-            if dt > 0.05 {
-                out.renderFPS = Double(counters.presentedFrames - lastPresented) / dt
-                out.decodeFPS = Double(counters.decodedVideoFrames - lastDecoded) / dt
-            }
-        }
-        lastSampleTime = now
-        lastPresented = counters.presentedFrames
-        lastDecoded = counters.decodedVideoFrames
-        lastPresentedPTS = counters.lastPresentedPTS
-
-        // 值可能是负的（计数器被复位过，例如换文件）：负数没有意义，钳到 0，
-        // 免得面板上出现 `-1234.5 fps` 这种一看就是坏掉的东西。
-        out.renderFPS = max(0, out.renderFPS)
-        out.decodeFPS = max(0, out.decodeFPS)
+        let rates = frameRateWindow.sample(time: ProcessInfo.processInfo.systemUptime,
+                                           presented: counters.presentedFrames, decoded: counters.decodedVideoFrames)
+        out.renderFPS = rates.render
+        out.decodeFPS = rates.decode
 
         let sys = system.sample()
         out.cpuPercent = sys.cpuPercent
@@ -188,10 +186,7 @@ final class StatsSampler {
     /// 换文件 / 关文件时调用：清掉历史，下一轮重新起算，
     /// 否则新旧文件的计数器差会被算成一瞬间的超高 FPS。
     func reset() {
-        lastSampleTime = 0
-        lastPresented = 0
-        lastDecoded = 0
-        lastPresentedPTS = -1
+        frameRateWindow.reset()
     }
 }
 

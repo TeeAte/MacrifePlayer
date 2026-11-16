@@ -106,7 +106,7 @@ final class CoreMLRIFEEngine {
 
     // MARK: 档位映射
 
-    /// rifeModel 设置 → models.dat 里的模型目录名。FLAVR/DRBA 不归本引擎管。
+    /// rifeModel 设置 → models.dat 里的 RIFE 4.26 模型目录名。
     /// 档位固定 576p tier：实时回放算力优先，细节由 blendAtSource 保底。
     private static func variantName(for model: RIFEModelChoice) -> String? {
         // MP_RIFE_VARIANT 环境变量可强制指定档位目录（A/B 测试用）
@@ -114,11 +114,8 @@ final class CoreMLRIFEEngine {
             return forced.isEmpty ? nil : forced
         }
         switch model {
-        case .lite425:   return "rife_425_lite_fp16_576p_blocks"
-        case .full425:   return "rife_425_fp16_576p_blocks"
-        case .v426:      return "rife_426_fp16_576p_blocks"
+        case .v426, .appleLowLatency: return "rife_426_fp16_576p_blocks"
         case .heavy426:  return "rife_426_heavy_fp16_576p_blocks"
-        case .flavr2x, .flavrFast, .distilDRBA: return nil
         }
     }
 
@@ -251,7 +248,8 @@ final class CoreMLRIFEEngine {
     func runPair(workerIndex: Int,
                  f0: DecodedVideoFrame, f1: DecodedVideoFrame,
                  ticks: [RifeTick],
-                 settings: PlaybackSettings) -> [DecodedVideoFrame] {
+                 settings: PlaybackSettings,
+                 includeSourceFrame: Bool = true) -> [DecodedVideoFrame] {
         lock.lock()
         let ei = (workerIndex >= 0 && !engines.isEmpty) ? workerIndex % engines.count : -1
         let eng = ei >= 0 ? engines[ei] : nil
@@ -266,19 +264,21 @@ final class CoreMLRIFEEngine {
         // f0 也过一遍与插值帧相同的往返内核 —— 三类帧（源/拷贝/插值）像素
         // 处理完全一致，消除 48fps 交替时的局部亮度闪烁（见 roundtripNV12 注释）。
         // 往返失败（极少）回退解码器直出帧。
-        let f0Uniform: DecodedVideoFrame
-        if let pb = eng.roundtripNV12(from: f0.pixelBuffer) {
-            f0Uniform = DecodedVideoFrame(pixelBuffer: pb, pts: f0.pts,
+        if includeSourceFrame {
+            let f0Uniform: DecodedVideoFrame
+            if let pb = eng.roundtripNV12(from: f0.pixelBuffer) {
+                f0Uniform = DecodedVideoFrame(pixelBuffer: pb, pts: f0.pts,
                                           isBT709: f0.isBT709,
                                           colorSpaceCode: f0.colorSpaceCode,
                                           isFullRange: f0.isFullRange,
                                           isInterpolated: false,
                                           transferFunction: f0.transferFunction,
                                           peakNits: f0.peakNits)
-        } else {
-            f0Uniform = f0
+            } else {
+                f0Uniform = f0
+            }
+            result.append(f0Uniform)
         }
-        result.append(f0Uniform)
 
         func chainFrame(timestep: Float, pts: Double) -> DecodedVideoFrame? {
             guard let pb = eng.runChain(f0: f0.pixelBuffer, f1: f1.pixelBuffer,
@@ -311,7 +311,7 @@ final class CoreMLRIFEEngine {
             if tick.runChain {
                 frame = chainFrame(timestep: tick.alpha, pts: tick.pts)
             } else {
-                frame = copyFrame(from: f0.pixelBuffer, pts: tick.pts)
+                frame = copyFrame(from: tick.alpha >= 0.5 ? f1.pixelBuffer : f0.pixelBuffer, pts: tick.pts)
             }
             if let frame { result.append(frame) }
         }
@@ -811,6 +811,8 @@ private final class Engine: @unchecked Sendable {
 
     // MARK: Metal 批提交（buffer + 可选 texture 混绑）
 
+    private var pendingTextureRefs: [CVMetalTexture] = []
+
     private func begin() { if pending == nil { pending = queue.makeCommandBuffer() } }
 
     /// buffers 依序绑到 buffer(0..n-1)，textures 依序绑到 texture(0..m-1)
@@ -837,6 +839,7 @@ private final class Engine: @unchecked Sendable {
     private func flushAndWait() throws {
         guard let cmd = pending else { return }
         pending = nil
+        defer { pendingTextureRefs.removeAll(keepingCapacity: true) }
         let t0 = DispatchTime.now().uptimeNanoseconds
         cmd.commit()
         cmd.waitUntilCompleted()
@@ -895,11 +898,13 @@ private final class Engine: @unchecked Sendable {
         // 函数内同步 flushAndWait（见 convertFrame / roundtripNV12），局部变量
         // 存活期天然覆盖。**不要**往 pb 上挂关联对象：那会把每帧 ~14MB 的
         // IOSurface 纹理钉在解码器缓冲上，解码池一轮换就是几十上百 MB 的常驻。
+        pendingTextureRefs.append(yt!)
+        pendingTextureRefs.append(uvt!)
         return (yTex, uvTex)
     }
 
     /// 一帧 NV12 → RGB NCHW fp16：模型分辨率写进 imgRing 槽位，源分辨率写进 fullRing 槽位
-    private func convertFrame(_ pb: CVPixelBuffer, imgSlot: Int, fullSlot: Int) throws -> (img: MTLBuffer, full: MTLBuffer) {
+    private func convertFrame(_ pb: CVPixelBuffer, imgSlot: Int, fullSlot: Int, wait: Bool = true) throws -> (img: MTLBuffer, full: MTLBuffer) {
         poolLock.lock(); convertOps += 1; poolLock.unlock()
         guard let texs = mapNV12Textures(pb) else {
             throw EngineError.setup("NV12 纹理映射失败")
@@ -918,7 +923,7 @@ private final class Engine: @unchecked Sendable {
                      textures: [texs.y, texs.uv],
                      bytes: &pFull, length: MemoryLayout<NV12InParams>.size,
                      grid: MTLSize(width: srcW, height: srcH, depth: 1))
-        try flushAndWait()
+        if wait { try flushAndWait() }
         return (imgRing[imgSlot].buffer, fullRing[fullSlot])
     }
 
@@ -947,6 +952,8 @@ private final class Engine: @unchecked Sendable {
         defer { pairPrepMS += Self.nowMS(t0) }
         retained.removeAll(keepingCapacity: true)
 
+        // 参考 Dev/Macrife 的双帧 prepare：无依赖的转换合并到一次 GPU 提交。
+        var f0EncodeSlot: Int?
         // ---- f0：与上一对的 f1 同一缓冲对象 → 直接复用其转换/encode 结果 ----
         if cachedPB === f0, let img = cachedImg, let full = cachedFull,
            let featArr = cachedFeatArray, let featBuf = cachedFeatBuffer {
@@ -957,14 +964,10 @@ private final class Engine: @unchecked Sendable {
         } else {
             imgCursor = (imgCursor + 1) % imgRing.count
             fullCursor = (fullCursor + 1) % fullRing.count
-            let conv = try convertFrame(f0, imgSlot: imgCursor, fullSlot: fullCursor)
+            let conv = try convertFrame(f0, imgSlot: imgCursor, fullSlot: fullCursor, wait: false)
             srcImg0 = conv.img
             srcFull0 = conv.full
-            let out = try predict(encodeModel, inputs: ["img": imgRing[imgCursor].array])
-            guard let fa = pick(out, "feat", "f") else {
-                throw EngineError.output("encode/f0 输出缺失")
-            }
-            f0Buf = try retain("f0", fa, channels: 4)
+            f0EncodeSlot = imgCursor
         }
 
         // ---- f1：全新转换 + encode，结果存入缓存供下一对复用 ----
@@ -972,9 +975,15 @@ private final class Engine: @unchecked Sendable {
         let f1FullSlot = (fullCursor + 1) % fullRing.count
         imgCursor = f1Slot
         fullCursor = f1FullSlot
-        let conv1 = try convertFrame(f1, imgSlot: f1Slot, fullSlot: f1FullSlot)
+        let conv1 = try convertFrame(f1, imgSlot: f1Slot, fullSlot: f1FullSlot, wait: false)
         srcImg1 = conv1.img
         srcFull1 = conv1.full
+        try flushAndWait()
+        if let slot = f0EncodeSlot {
+            let out = try predict(encodeModel, inputs: ["img": imgRing[slot].array])
+            guard let feature = pick(out, "feat", "f") else { throw EngineError.output("encode/f0 输出缺失") }
+            f0Buf = try retain("f0", feature, channels: 4)
+        }
         let out1 = try predict(encodeModel, inputs: ["img": imgRing[f1Slot].array])
         guard let fa1 = pick(out1, "feat", "f") else {
             throw EngineError.output("encode/f1 输出缺失")

@@ -67,7 +67,18 @@ final class PlaybackEngine {
     private var captureSession: AVCaptureSession?
     private var captureOutputDelegate: CaptureOutputDelegate?
     private var captureAudioPreviewOutput: AVCaptureAudioPreviewOutput?
+    private struct CaptureInput {
+        let frame: DecodedVideoFrame
+        let contentFPS: Double
+    }
+    private let captureFrameQueue = BoundedQueue<CaptureInput>(capacity: 2)
+    private let captureProcessingQueue = DispatchQueue(label: "com.macrife.capture.processing", qos: .userInteractive)
+    private let captureProcessingGroup = DispatchGroup()
+    private var lastCaptureProcessedPTS: Double?
+    private var console30Selector = Console30FrameSelector()
+    private var captureRepeatedFramesSkipped = 0
     private var captureFPS: Double = 60.0
+    private var captureContentFrameRate: Double = 60.0
     /// 面板请求的帧时长 / 帧率，留到 `startRunning()` 之后再落地（见 openCapture）。
     private var pendingCaptureFrameDuration: CMTime?
     private var pendingCaptureFPS: Double = 60.0
@@ -83,6 +94,9 @@ final class PlaybackEngine {
     private var captureRateWarned = false
     /// 本次采集解析出的色彩信息，供面板显示与日志落盘。
     private var captureColorDescription = "—"
+    private var latestCapturePTS: Double?
+    private var latestCaptureHostTime: Double = 0
+    private var captureLatencySamples: [Double] = []
     var hasVideo: Bool { videoDecoder != nil || isCaptureMode }
     var hasAudio: Bool { audioOutput != nil || captureAudioPreviewOutput != nil }
 
@@ -234,7 +248,7 @@ final class PlaybackEngine {
     private let frameQueue = BoundedQueue<DecodedVideoFrame>(capacity: 48)
     private var lastPushedPTS: Double? = nil
     private let rifeEngine = RIFEInterpolationEngine()
-    private let flavrEngine = FLAVRInterpolationEngine()
+    private let appleInterpolator = AppleLowLatencyInterpolator()
     /// 每个编解码上下文一把门闸：视频与音频独立，解码可以并行；
     /// 但同一把门闸保证「同一时刻只有一个线程在动这个 context」——
     /// FFmpeg 帧级线程的 async 锁不变式就靠它（详见 PipelinePrimitives.swift）。
@@ -271,6 +285,7 @@ final class PlaybackEngine {
         let f0: DecodedVideoFrame
         let f1: DecodedVideoFrame
         let ticks: [CoreMLRIFEEngine.RifeTick]
+        let includeSourceFrame: Bool
         let fps: Double
         let settings: PlaybackSettings
     }
@@ -337,6 +352,29 @@ final class PlaybackEngine {
     private var loggedFirstFrame = false
     private var audioPrebufferDone = false
     private var captureStartPTS: Double?
+    private var capturePlayoutClock = CapturePlayoutClock()
+
+    private var captureLatencyPolicy: CaptureLatencyPolicy? {
+        guard isCaptureMode else { return nil }
+        let mode = PlaybackSettings.shared.captureLowLatencyMode
+        return mode == .off ? nil : CaptureLatencyPolicy(isExtreme: mode == .extreme)
+    }
+
+    private var captureContentFPS: Double {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return captureContentFrameRate
+    }
+
+    private var captureOutputCapacity: Int {
+        guard let policy = captureLatencyPolicy else { return 48 }
+        let settings = PlaybackSettings.shared
+        let target = StatsPanelView.targetFrameRate(source: captureContentFPS, mode: settings.rifeRateMode)
+        guard settings.rifeRateMode != .off,
+              CaptureLatencyPolicy.requiresInterpolation(sourceFPS: captureContentFPS, targetFPS: target) else {
+            return policy.passthroughCapacity
+        }
+        return policy.outputCapacity(sourceFPS: captureContentFPS, targetFPS: target)
+    }
 
     private var ticker: Timer?
     private var audioStallWatchdogStart: TimeInterval = 0
@@ -377,6 +415,7 @@ final class PlaybackEngine {
         videoPacketQueue.reopen()
         audioPacketQueue.reopen()
         frameQueue.reopen()
+        captureFrameQueue.reopen()
         rifeInputQueue.reopen()
         rifeJobQueues.forEach { $0.reopen() }
         rifeReorder.reopen()
@@ -640,6 +679,7 @@ final class PlaybackEngine {
     /// 那组计数器 —— 两把锁嵌套就得分清「谁在外面」，而这里没有任何理由嵌套：
     /// 计数在临界区外做，锁序永远只有单层的 frameLock 或单层的 statsLock。
     func nextFrameForDisplay() -> DecodedVideoFrame? {
+        guard !isCaptureMode || isPlaying else { return nil }
         let now = clock.currentTime()
 
         var lateDropped = 0
@@ -647,29 +687,60 @@ final class PlaybackEngine {
 
         frameLock.lock()
         let latencyMode = PlaybackSettings.shared.captureLowLatencyMode
-        let isInterpolating = (PlaybackSettings.shared.rifeRateMode != .off)
+        let rateMode = PlaybackSettings.shared.rifeRateMode
+        let targetFPS = StatsPanelView.targetFrameRate(source: captureContentFPS, mode: rateMode)
+        let isInterpolating = rateMode != .off && (captureLatencyPolicy == nil
+            || CaptureLatencyPolicy.requiresInterpolation(sourceFPS: captureContentFPS, targetFPS: targetFPS))
 
-        if isCaptureMode && latencyMode != .off && !isInterpolating {
-            // 采集卡原生极低延迟直出模式（仅在未开启补帧时生效）：
-            // 只要队列中有帧，立即弹出最新帧呈现，如有积压旧帧则直接跳过，零等待 V-Sync 立即上屏。
-            //
-            // 两档在这里才有区别：极限电竞一路取到最新、队列清空（延迟最低）；
-            // 平衡抗抖动在队列里保留最后 1 帧当缓冲，吸收 USB/驱动侧的帧到达抖动。
-            // 之前两档共用同一个 while，行为完全一致。
-            let reserve = (latencyMode == .extreme) ? 0 : 1
-            var newest = pendingFrame ?? frameQueue.tryPop()
-            while frameQueue.count > reserve, let newer = frameQueue.tryPop() {
-                if newest != nil { lateDropped += 1 }
-                newest = newer
+        if isCaptureMode && latencyMode != .off {
+            // 目标网格端点与下一对的源帧可能只差微秒，不能当成两张独立画面。
+            let minimumStep = isInterpolating ? 0.25 / max(1, targetFPS) : 0
+            if pendingFrame == nil { pendingFrame = frameQueue.tryPop() }
+            while let candidate = pendingFrame, candidate.pts <= lastPresentedPTS + minimumStep {
+                pendingFrame = frameQueue.tryPop()
+                lateDropped += 1
             }
-            pendingFrame = nil
-            if let candidate = newest {
-                lastPresentedPTS = candidate.pts
-                if !loggedFirstFrame {
-                    loggedFirstFrame = true
-                    Self.log("首帧上屏 pts=\(String(format: "%.3f", candidate.pts))s [采集卡超低延迟直出已激活]")
+            if let first = pendingFrame {
+                let target = StatsPanelView.targetFrameRate(source: captureContentFPS,
+                                                           mode: PlaybackSettings.shared.rifeRateMode)
+                let interval = 1.0 / max(1, target)
+                let newestPTS = max(first.pts, frameQueue.peekLast()?.pts ?? first.pts)
+                let hostTime = CACurrentMediaTime()
+                let appleTiming = appleInterpolator.snapshot
+                let nativeDue: Double?
+                if isInterpolating, PlaybackSettings.shared.rifeModel == .appleLowLatency,
+                   appleTiming.active, appleTiming.frames > 0, let latestCapturePTS {
+                    nativeDue = CapturePlayoutClock.livePresentationTime(
+                        latestPTS: latestCapturePTS, receivedHostTime: latestCaptureHostTime, hostTime: hostTime,
+                        sourceFPS: captureContentFPS, processingSeconds: appleTiming.processingSeconds)
+                } else {
+                    nativeDue = nil
                 }
-                presented = candidate
+                let due = nativeDue ?? (isInterpolating
+                    ? capturePlayoutClock.presentationTime(hostTime: CACurrentMediaTime(),
+                                                          nextPTS: first.pts, newestPTS: newestPTS,
+                                                          frameInterval: interval,
+                                                          sourceInterval: 1.0 / max(1, captureContentFPS),
+                                                          isInterpolated: first.isInterpolated)
+                    : newestPTS)
+                // 保持 AI 插帧的时间间距；卡顿恢复只保留已经到点的最新画面。
+                let tolerance = isInterpolating ? interval * 0.25 : 0
+                while let candidate = pendingFrame, candidate.pts <= due + tolerance {
+                    if candidate.pts > (presented?.pts ?? lastPresentedPTS) + minimumStep {
+                        if presented != nil { lateDropped += 1 }
+                        presented = candidate
+                    } else {
+                        lateDropped += 1
+                    }
+                    pendingFrame = frameQueue.tryPop()
+                }
+                if let frame = presented {
+                    lastPresentedPTS = frame.pts
+                    if !loggedFirstFrame {
+                        loggedFirstFrame = true
+                        Self.log("首帧上屏 pts=\(String(format: "%.3f", frame.pts))s [采集低延迟 · AI补帧=\(isInterpolating)]")
+                    }
+                }
             }
         } else {
             // 严格过滤并丢弃任何小于当前有效起始 PTS 或小于已呈现 PTS 的旧世代过期残留帧（seek/起播残留/逆序帧）
@@ -766,6 +837,11 @@ final class PlaybackEngine {
                 }
             }
         }
+        if isCaptureMode, let frame = presented, let latestCapturePTS {
+            captureLatencySamples.append(max(0, latestCapturePTS - frame.pts
+                + CACurrentMediaTime() - latestCaptureHostTime) * 1000)
+            if captureLatencySamples.count > 240 { captureLatencySamples.removeFirst(captureLatencySamples.count - 240) }
+        }
         frameLock.unlock()
 
         if lateDropped > 0 { noteDroppedFrame(count: lateDropped) }
@@ -820,11 +896,15 @@ final class PlaybackEngine {
         stateLock.unlock()
 
         clock.pause()
+        captureSession?.stopRunning()
+        captureSession = nil
+        captureOutputDelegate = nil
+        captureFrameQueue.close()
+        captureFrameQueue.flush()
 
-        // 唤醒所有门闸并重置 RIFE 引擎缓存
+        // 唤醒所有门闸；共享引擎缓存在线程退出后再重置。
         videoGate.cancel()
         audioGate.cancel()
-        CoreMLRIFEEngine.shared.reset()
 
         // 冲刷并关闭队列唤醒所有阻塞中的线程
         rifeReorder.discardPending()
@@ -843,6 +923,9 @@ final class PlaybackEngine {
         }
         stateLock.lock(); rifeThreadsStarted = false; stateLock.unlock()
 
+        // close 已唤醒采集处理线程；不能让上一会话的转换/兜底插帧跨进下一会话。
+        captureProcessingGroup.wait()
+
         // 显式等待 RIFE 异步推理管线所有调度/工作/出口线程彻底退出
         if rifeGroup.wait(timeout: .now() + 1.0) == .timedOut {
             FileHandle.standardError.write(
@@ -855,15 +938,12 @@ final class PlaybackEngine {
                 Data("[PlaybackEngine] 警告：工作线程未在 1s 内退出\n".utf8))
         }
 
+        CoreMLRIFEEngine.shared.reset()
+        appleInterpolator.reset()
         // 此时工作线程均已退出，安全关闭音频输出
         audioOutput?.teardown()
 
         // 此时没有线程在跑，可以安全拆组件
-        if let cap = captureSession {
-            cap.stopRunning()
-            captureSession = nil
-        }
-        captureOutputDelegate = nil
         captureAudioPreviewOutput = nil
         isCaptureMode = false
         source?.close()
@@ -1068,24 +1148,16 @@ final class PlaybackEngine {
         let settings = PlaybackSettings.shared
         let fps = videoDecoder?.frameRate ?? (isCaptureMode ? captureFPS : 0)
 
-        // 采集卡「假 60 帧（真 30）」识别：CadenceDetector 用亮度差分 FSM 检测 2:2 重复帧，
-        // 命中后直接抽掉重复帧 —— 流还原成真 30fps，再由下方 2X（fps60 模式在源帧率 ≥ 29 时
-        // 即等价于每对 1 次真插值）补回真 60fps。只抽「已锁定假 60 且确为重复」的帧，
-        // 真 60fps 静态画面不会被误抽。放在最前：丢弃的重复帧不再做限流与 YUY2 转换。
-        // processFrame 每帧都调用以维持 FSM 历史（含即将丢弃的重复帧本身）。
-        if isCaptureMode, settings.rifeRateMode != .off {
-            let cadenceDecision = CadenceDetector.shared.processFrame(
-                pixelBuffer: f.pixelBuffer,
-                containerFPS: fps,
-                settings: settings)
-            if cadenceDecision.cadence == .fake60From30, cadenceDecision.isDuplicate {
-                return   // 抽掉 2:2 重复帧，不送补帧/上屏（其时刻由相邻真帧插值补全）
-            }
-        }
+        // Manual capture cadence is resolved before queue replacement.
+        // captureProcessingLoop applies the FPS carried by this specific frame.
+
+        let targetFPS = StatsPanelView.targetFrameRate(source: captureContentFPS, mode: settings.rifeRateMode)
+        let needsInterpolation = settings.rifeRateMode != .off && (captureLatencyPolicy == nil
+            || CaptureLatencyPolicy.requiresInterpolation(sourceFPS: captureContentFPS, targetFPS: targetFPS))
 
         // 补帧激活期间的端到端限流（对齐原版 RIFE60_MAX_AHEAD）：先压住解码
         // 领先量，再谈路由 —— 否则管线被灌满后 protect interval 会永久触发。
-        if settings.rifeRateMode != .off {
+        if needsInterpolation, captureLatencyPolicy == nil {
             rifeThrottleWait(generation: gen)
         }
 
@@ -1103,7 +1175,7 @@ final class PlaybackEngine {
         // 这里先把 YUY2 在 GPU 上解包成 NV12，之后就能正常进补帧链路 ——
         // 直接喂打包缓冲会拿到错误输入甚至失败。
         var effectiveFrame = f
-        if isPacked422, settings.rifeRateMode != .off {
+        if isPacked422, needsInterpolation, settings.rifeModel != .appleLowLatency {
             if let nv12 = CoreMLRIFEEngine.shared.convertPacked422ToNV12(f.pixelBuffer) {
                 effectiveFrame = DecodedVideoFrame(pixelBuffer: nv12, pts: f.pts,
                                                   isBT709: f.isBT709,
@@ -1121,7 +1193,7 @@ final class PlaybackEngine {
         // ── HDR 转 SDR 色调映射 (Tone Mapping) ──
         // 若片源为 HDR (SMPTE ST 2084 PQ / HLG / BT.2020 10-bit)，且开启了 HDR 转 SDR (默认 auto 自动映射):
         // 先在 GPU 上将 10-bit HDR 画面转换映射为标准 BT.709 SDR 8-bit NV12 画面。
-        // 这样不仅使 SDR 屏幕恢复丰满对比与鲜艳色彩，而且进入补帧引擎 (RIFE / FLAVR) 的画面
+        // 这样不仅使 SDR 屏幕恢复丰满对比与鲜艳色彩，而且进入补帧引擎 (RIFE) 的画面
         // 是标准 SDR 域，保证光流运动估计与神经网络推理在最契合的 SDR 对比度与色彩空间下进行。
         let hdrMode = settings.hdrToneMapping
         if effectiveFrame.isHDR && hdrMode != .off {
@@ -1134,12 +1206,40 @@ final class PlaybackEngine {
             }
         }
 
+        guard needsInterpolation else {
+            pushOutputs([effectiveFrame], generation: gen)
+            return
+        }
+
+        if settings.rifeModel == .appleLowLatency,
+           let frames = appleInterpolator.interpolate(effectiveFrame, sourceFPS: isCaptureMode ? captureContentFPS : fps,
+                                                       targetFPS: StatsPanelView.targetFrameRate(
+                                                        source: isCaptureMode ? captureContentFPS : fps, mode: settings.rifeRateMode)) {
+            pushOutputs(frames, generation: gen)
+            return
+        }
+
+        // 原生处理失败时，打包采集格式也要能进入真实 RIFE 回退链路。
+        if settings.rifeModel == .appleLowLatency, isPacked422 {
+            CoreMLRIFEEngine.shared.prewarmIfNeeded(settings: settings,
+                sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
+                sourceHeight: CVPixelBufferGetHeight(effectiveFrame.pixelBuffer),
+                fullRange: effectiveFrame.isFullRange, colorSpaceCode: effectiveFrame.colorSpaceCode, is10Bit: false)
+            guard let converted = CoreMLRIFEEngine.shared.convertPacked422ToNV12(effectiveFrame.pixelBuffer) else {
+                pushOutputs([effectiveFrame], generation: gen)
+                return
+            }
+            effectiveFrame = DecodedVideoFrame(pixelBuffer: converted, pts: effectiveFrame.pts,
+                isBT709: effectiveFrame.isBT709, colorSpaceCode: effectiveFrame.colorSpaceCode,
+                isFullRange: effectiveFrame.isFullRange)
+            isPacked422 = false
+        }
+
         let effectivePixelFormat = CVPixelBufferGetPixelFormatType(effectiveFrame.pixelBuffer)
         let effectiveIs10Bit = (effectivePixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
                                 effectivePixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
 
         if !isPacked422,
-           !settings.rifeModel.isFLAVR,
            settings.rifeRateMode != .off,
            CoreMLRIFEEngine.shared.isReady(settings: settings,
                                            sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
@@ -1148,6 +1248,12 @@ final class PlaybackEngine {
                                            colorSpaceCode: effectiveFrame.colorSpaceCode,
                                            is10Bit: effectiveIs10Bit) {
             ensureRifePipeline()
+            if let policy = captureLatencyPolicy {
+                let dropped = rifeInputQueue.pushKeepingNewest(
+                    [.frame(effectiveFrame, generation: gen, fps: fps)], limit: policy.inputCapacity)
+                noteDroppedFrame(count: dropped)
+                return
+            }
             while !isStopping {
                 if rifeInputQueue.push(.frame(effectiveFrame, generation: gen, fps: fps),
                                        timeout: 0.1) { return }
@@ -1160,8 +1266,6 @@ final class PlaybackEngine {
         if isPacked422 {
             // 打包 4:2:2 且未转换（引擎未就绪）：直通上屏（渲染器支持）
             framesToEnqueue = [effectiveFrame]
-        } else if settings.rifeModel.isFLAVR {
-            framesToEnqueue = flavrEngine.interpolate(incoming: effectiveFrame, settings: settings, sourceFrameRate: fps)
         } else {
             // 引擎未就绪：后台拉起初始化（秒级），先用块匹配引擎顶着，就绪后热切换
             CoreMLRIFEEngine.shared.prewarmIfNeeded(settings: settings,
@@ -1180,11 +1284,10 @@ final class PlaybackEngine {
     /// 按需拉起 RIFE 流水线线程（一次；shutdownPipeline 关闭后复位）。
     private func ensureRifePipeline() {
         stateLock.lock()
-        let started = rifeThreadsStarted
-        if !started { rifeThreadsStarted = true }
-        stateLock.unlock()
-        guard !started else { return }
-
+        defer { stateLock.unlock() }
+        guard !stopRequested, !rifeThreadsStarted else { return }
+        rifeThreadsStarted = true
+        // 分配队列和登记线程组也在锁内完成，避免停止时漏掉刚启动的 worker。
         rifeJobQueues = [
             BoundedQueue<RifeJob>(capacity: Self.rifeMaxInflight),
             BoundedQueue<RifeJob>(capacity: Self.rifeMaxInflight),
@@ -1220,12 +1323,14 @@ final class PlaybackEngine {
         func submit(_ f0: DecodedVideoFrame, _ f1: DecodedVideoFrame,
                     ticks: [CoreMLRIFEEngine.RifeTick],
                     itemGen: Int, itemFps: Double, settings: PlaybackSettings) {
-            guard rifeReorder.waitCapacity(Self.rifeMaxInflight) else { return }
+            guard rifeReorder.waitCapacity(captureLatencyPolicy?.maxInflightPairs ?? Self.rifeMaxInflight) else { return }
             // 真实神经网络推理（由 waitCapacity 硬限背压调控，杜绝盲目降级削杀真推理）
             let t = ticks
             let job = RifeJob(seq: seq, generation: itemGen,
                               workerIndex: seq % rifeWorkerQueues.count,
                               f0: f0, f1: f1, ticks: t,
+                              includeSourceFrame: seq == 0 || t.isEmpty || captureLatencyPolicy == nil
+                                  || !settings.rifeRateMode.needsTimelineResample(sourceFPS: itemFps),
                               fps: itemFps, settings: settings)
             seq += 1
             rifeReorder.submit(seq: job.seq)
@@ -1241,6 +1346,8 @@ final class PlaybackEngine {
         }
 
         while !isStopping {
+            if let policy = captureLatencyPolicy,
+               !rifeReorder.waitCapacity(policy.maxInflightPairs) { break }
             guard let item = rifeInputQueue.pop() else {
                 break
             }
@@ -1271,6 +1378,13 @@ final class PlaybackEngine {
                 let settings = PlaybackSettings.shared
                 var ticks: [CoreMLRIFEEngine.RifeTick] = []
                 let dt = f.pts - p.pts
+                if captureLatencyPolicy != nil, dt > 3.0 / max(1, captureContentFPS) {
+                    // 过载或断流后的大间隔不补生成过去几十个 tick，立即回到新帧再继续补帧。
+                    cursor = f.pts
+                    prevLuma = nil
+                    submit(f, f, ticks: [], itemGen: gen, itemFps: fps, settings: settings)
+                    continue
+                }
                 var skip = (dt <= 0.001 || dt > 1.0)   // 倒退/跳变（seek 等）→ 直通
 
                 // 镜头转场保护（调度线程独占 prevLuma，无共享状态）
@@ -1294,9 +1408,7 @@ final class PlaybackEngine {
                         // 神经网络合成 —— 即「全真 60 帧 / 120 帧」。端点附近的网格点
                         //（alpha < 0.04 或 > 0.96）与相邻源帧几乎重合，复制即可、零开销。
                         //
-                        // 采集卡「假 30fps → 真 60fps」由此自然成立：CadenceDetector 已在
-                        // enqueueFrame 抽掉 2:2 重复帧，把流还原成真 30fps；这里每对只插 1 个
-                        // 真网格点（30 对/秒推理，远在 ANE 双实例 ~44 对/秒预算内）→ 顺滑真 60。
+                        // 主机30模式已在采集入口固定隔帧取样；这里每对插入一个中间帧。
                         // 24fps 影片 → 60fps 每对插 2 个真网格点（48 对/秒），超出预算时由
                         // protect-interval 逐对优雅直通（偶发重复帧，不冻结），不会卡死。
                         let targetFPS: Double
@@ -1368,7 +1480,8 @@ final class PlaybackEngine {
             if currentGeneration() == job.generation {
                 out = CoreMLRIFEEngine.shared.runPair(workerIndex: index,
                                                       f0: job.f0, f1: job.f1,
-                                                      ticks: job.ticks, settings: job.settings)
+                                                      ticks: job.ticks, settings: job.settings,
+                                                      includeSourceFrame: job.includeSourceFrame)
             }
             rifeReorder.push(seq: job.seq, gen: job.generation, frames: out)
             }
@@ -1397,12 +1510,13 @@ final class PlaybackEngine {
     private func pushOutputs(_ framesToEnqueue: [DecodedVideoFrame], generation gen: Int) {
         let settings = PlaybackSettings.shared
         let isInterpolating = (settings.rifeRateMode != .off)
-        let isLowLatency = isCaptureMode && (settings.captureLowLatencyMode != .off) && !isInterpolating
-        // 低延迟档位真正的差别：队列允许积压的上限帧数。
-        // 极限电竞 = 只留最新 1 帧（延迟最低，抖动风险最大）；
-        // 平衡抗抖动 = 留 2 帧（多一帧余量吸收网络/USB 抖动）。
-        // 之前两档共用写死的 2，选哪一档行为完全一致，等于没得选。
-        let lowLatencyCap = (settings.captureLowLatencyMode == .extreme) ? 1 : 2
+        if captureLatencyPolicy != nil {
+            guard currentGeneration() == gen, !isStopping else { return }
+            let frames = framesToEnqueue.filter { $0.pts >= currentMinValidPTS }
+            let dropped = frameQueue.pushKeepingNewest(frames, limit: captureOutputCapacity)
+            noteDroppedFrame(count: dropped)
+            return
+        }
         let floor = currentMinValidPTS
         for outFrame in framesToEnqueue {
             // 换代（seek/切轨）后仍在本函数里的残留帧直接丢弃
@@ -1412,14 +1526,6 @@ final class PlaybackEngine {
                 Self.log("🚨🚨🚨 BACKWARD PTS DETECTED in pushOutputs! last=\(last) cur=\(outFrame.pts) diff=\(outFrame.pts - last)")
             }
             lastPushedPTS = outFrame.pts
-            if isLowLatency {
-                // 仅在未开启补帧的极低延迟模式下丢弃积压旧帧
-                if frameQueue.count >= lowLatencyCap {
-                    _ = frameQueue.tryPop()
-                }
-                _ = frameQueue.push(outFrame, timeout: 0.005)
-                continue
-            }
             // 补帧模式防积压门限：若渲染卡顿导致积压超过 10 帧，适度弹出最旧 1 帧限流防爆，但不暴利清空
             if isCaptureMode && isInterpolating && frameQueue.count >= 10 {
                 _ = frameQueue.tryPop()
@@ -1597,7 +1703,7 @@ final class PlaybackEngine {
         rifeReorder.discardPending()
         rifeJobQueues.forEach { $0.flush() }
         rifeEngine.reset()
-        flavrEngine.reset()
+        appleInterpolator.reset()
         CoreMLRIFEEngine.shared.reset()
 
         // 1. 冻结两把门：等在途单次解码结束，之后独占所有 context (此时旧包已清空，毫秒级即可获得)
@@ -1740,7 +1846,7 @@ final class PlaybackEngine {
         rifeInputQueue.flush()
         rifeReorder.discardPending()
         rifeEngine.reset()
-        flavrEngine.reset()
+        appleInterpolator.reset()
         CoreMLRIFEEngine.shared.reset()
         frameLock.lock(); pendingFrame = nil; frameLock.unlock()
         anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
@@ -2611,15 +2717,19 @@ final class PlaybackEngine {
         c.queues.videoPacket = videoPacketQueue.count
         c.queues.videoPacketCapacity = 200
         c.queues.audioPacket = audioPacketQueue.count
-        c.queues.audioPacketCapacity = 600
+        c.queues.audioPacketCapacity = 128
         c.queues.frame = frameQueue.count
-        c.queues.frameCapacity = 64
+        c.queues.frameCapacity = captureOutputCapacity
 
         let s = PlaybackSettings.shared
-        c.rifeActive = s.rifeRateMode != .off
-        if s.rifeModel.isFLAVR {
-            c.rifeInterpolatedFrames = flavrEngine.totalInterpolatedFrames
-            c.rifeStatusText = flavrEngine.activeStateText
+        let target = StatsPanelView.targetFrameRate(source: captureContentFPS, mode: s.rifeRateMode)
+        c.rifeActive = s.rifeRateMode != .off && (captureLatencyPolicy == nil
+            || CaptureLatencyPolicy.requiresInterpolation(sourceFPS: captureContentFPS, targetFPS: target))
+        let appleStats = appleInterpolator.snapshot
+        if s.rifeModel == .appleLowLatency {
+            c.rifeInterpolatedFrames = appleStats.frames
+                + (appleStats.active ? 0 : CoreMLRIFEEngine.shared.totalInterpolatedFrames)
+            c.rifeStatusText = appleStats.status
         } else if CoreMLRIFEEngine.shared.totalInterpolatedFrames > 0 || !CoreMLRIFEEngine.shared.activeStateText.contains("加载") {
             c.rifeInterpolatedFrames = CoreMLRIFEEngine.shared.totalInterpolatedFrames
             c.rifeStatusText = CoreMLRIFEEngine.shared.activeStateText
@@ -2635,7 +2745,19 @@ final class PlaybackEngine {
         c.audioScheduledEnd = clock.scheduledAudioEnd
         frameLock.lock()
         c.lastPresentedPTS = lastPresentedPTS
+        if isCaptureMode, let latestCapturePTS, lastPresentedPTS >= 0 {
+            c.capturePipelineLatencyMS = max(0, latestCapturePTS - lastPresentedPTS
+                + CACurrentMediaTime() - latestCaptureHostTime) * 1000
+        }
+        if isCaptureMode, !captureLatencySamples.isEmpty {
+            let samples = captureLatencySamples.sorted()
+            c.captureLatencyP50MS = samples[samples.count / 2]
+            c.captureLatencyP95MS = samples[Int(Double(samples.count - 1) * 0.95)]
+        }
         frameLock.unlock()
+        if isCaptureMode {
+            c.captureProcessingDepth = "待处理 \(captureFrameQueue.count) · AI输入 \(rifeInputQueue.count) · 在途 \(rifeReorder.inflight)对"
+        }
         c.currentTime = clock.currentTime()
         c.isPlaying = isPlaying
         c.usesAudioClock = clock.hasAudio
@@ -2755,9 +2877,11 @@ final class PlaybackEngine {
         _state = .playing
         isCaptureMode = true
         captureFPS = fps > 0 ? fps : 60.0
+        captureContentFrameRate = captureFPS
         stateLock.unlock()
 
         frameQueue.reopen()
+        captureFrameQueue.reopen()
         rifeInputQueue.reopen()
         rifeJobQueues.forEach { $0.reopen() }
         rifeReorder.reopen()
@@ -2767,14 +2891,20 @@ final class PlaybackEngine {
         loggedFirstFrame = false
         audioPrebufferDone = false
         captureStartPTS = nil
+        capturePlayoutClock.reset()
+        lastCaptureProcessedPTS = nil
         actualCaptureFPS = 0
         captureSampleCount = 0
         lastCaptureSampleHostTime = 0
         captureRateWarned = false
         captureColorDescription = "—"
+        latestCapturePTS = nil
+        latestCaptureHostTime = 0
+        captureLatencySamples.removeAll(keepingCapacity: true)
+        captureRepeatedFramesSkipped = 0
         packed422SkipWarned = false
         frameLock.unlock()
-        CadenceDetector.shared.reset()   // 新采集会话：清空假 60 帧 FSM 状态，重新识别
+        console30Selector.reset()
         resetStats()
         clock.reset(to: 0)
         clock.start()
@@ -2832,7 +2962,7 @@ final class PlaybackEngine {
             kCVPixelBufferPixelFormatTypeKey as String: Int(requestedPixelFormat)
         ]
         let captureQueue = DispatchQueue(label: "com.macrife.capture.video", qos: .userInteractive)
-        let outputDelegate = CaptureOutputDelegate(engine: self)
+        let outputDelegate = CaptureOutputDelegate(engine: self, generation: currentGeneration())
         self.captureOutputDelegate = outputDelegate
         vOutput.setSampleBufferDelegate(outputDelegate, queue: captureQueue)
         if session.canAddOutput(vOutput) {
@@ -2852,6 +2982,13 @@ final class PlaybackEngine {
         }
 
         session.commitConfiguration()
+        rifeEngine.reset()
+        captureProcessingGroup.enter()
+        captureProcessingQueue.async { [weak self] in
+            guard let self else { return }
+            defer { self.captureProcessingGroup.leave() }
+            self.captureProcessingLoop()
+        }
         session.startRunning()
         self.captureSession = session
 
@@ -2901,8 +3038,35 @@ final class PlaybackEngine {
         }
     }
 
-    func handleCaptureSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard isCaptureMode, !isStopping, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+    private func captureProcessingLoop() {
+        while let input = captureFrameQueue.pop() {
+            if isStopping { return }
+            autoreleasepool {
+                let frame = input.frame
+                let cadenceChanged = abs(input.contentFPS - captureContentFPS) > 0.5
+                stateLock.lock()
+                captureContentFrameRate = input.contentFPS
+                stateLock.unlock()
+                if cadenceChanged {
+                    // Do not interpolate across a 30/60 transition using a stale
+                    // previous frame. Keep the warmed native model and counters.
+                    appleInterpolator.discardPreviousFrame()
+                    rifeEngine.reset()
+                    Self.log(String(format: "采集内容节奏切换：%.2f fps（采集仍为 %.2f fps）", input.contentFPS, captureFPS))
+                }
+                if captureLatencyPolicy != nil, let previous = lastCaptureProcessedPTS,
+                   frame.pts - previous > 3.0 / max(1, captureContentFPS) {
+                    rifeEngine.reset()
+                    appleInterpolator.discardPreviousFrame()
+                }
+                lastCaptureProcessedPTS = frame.pts
+                enqueueFrame(frame)
+            }
+        }
+    }
+
+    func handleCaptureSampleBuffer(_ sampleBuffer: CMSampleBuffer, generation gen: Int) {
+        guard gen == currentGeneration(), isCaptureMode, !isStopping, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let cmPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         let now = clock.currentTime()
 
@@ -2925,6 +3089,8 @@ final class PlaybackEngine {
         frameLock.lock()
         let colorChanged = (color.description != captureColorDescription)
         if colorChanged { captureColorDescription = color.description }
+        latestCapturePTS = pts
+        latestCaptureHostTime = CACurrentMediaTime()
         frameLock.unlock()
         if colorChanged { Self.log("采集色彩: \(color.description)") }
         let frame = DecodedVideoFrame(
@@ -2935,7 +3101,26 @@ final class PlaybackEngine {
             isFullRange: color.isFullRange,
             isInterpolated: false
         )
-        enqueueFrame(frame)
+        noteDecodedFrames(1)
+        let settings = PlaybackSettings.shared
+        let selection = console30Selector.select(pts: pts, captureFPS: captureFPS,
+            enabled: settings.fake60FPSOptimization == .on)
+        if !selection.keep {
+            frameLock.lock()
+            captureRepeatedFramesSkipped += 1
+            frameLock.unlock()
+            return
+        }
+        let input = CaptureInput(frame: frame, contentFPS: selection.contentFPS)
+        if let policy = captureLatencyPolicy {
+            let dropped = captureFrameQueue.pushKeepingNewest([input], limit: policy.inputCapacity)
+            noteDroppedFrame(count: dropped)
+        } else {
+            // 标准档也交给同一条处理线程，切换延迟档位时不会并发访问插帧状态。
+            while !isStopping, gen == currentGeneration() {
+                if captureFrameQueue.push(input, timeout: 0.05) { break }
+            }
+        }
     }
 
     /// 用相邻样本的**主机时钟**间隔算实测投递帧率，并在与请求值差距过大时告警。
@@ -2974,6 +3159,15 @@ final class PlaybackEngine {
     var captureDeliveredFPS: Double {
         frameLock.lock(); defer { frameLock.unlock() }
         return actualCaptureFPS
+    }
+
+    var captureContentDescription: String {
+        frameLock.lock()
+        let skipped = captureRepeatedFramesSkipped
+        frameLock.unlock()
+        return String(format: "主机30模式 %@ · 内容 %.2f fps · 固定隔帧跳过 %d 帧",
+                      PlaybackSettings.shared.fake60FPSOptimization == .on ? "开启" : "关闭",
+                      captureContentFPS, skipped)
     }
 
     /// 面板只读：本次采集解析出的色彩信息（矩阵 / 范围 / 来源）。
@@ -3084,11 +3278,13 @@ final class PlaybackEngine {
 
 private final class CaptureOutputDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     weak var engine: PlaybackEngine?
-    init(engine: PlaybackEngine) {
+    private let generation: Int
+    init(engine: PlaybackEngine, generation: Int) {
         self.engine = engine
+        self.generation = generation
     }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        engine?.handleCaptureSampleBuffer(sampleBuffer)
+        engine?.handleCaptureSampleBuffer(sampleBuffer, generation: generation)
     }
 }
 

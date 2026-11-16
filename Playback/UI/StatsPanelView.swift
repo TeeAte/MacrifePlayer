@@ -478,15 +478,22 @@ final class StatsPanelView: NSView {
 
         if s.rifeRateMode != .off {
             let actualFPS = stats.renderFPS > 0 ? String(format: " · 实测 %.1f FPS", stats.renderFPS) : ""
-            let familyName = s.rifeModel.isFLAVR ? "FLAVR" : "RIFE"
-            let archNote = s.rifeModel.isFLAVR ? " (3D-CNN · ANE加速)" : ""
-            lines.append("补帧  \(s.rifeRateMode.statusTitle) (\(familyName))  ·  目标 \(targetText)\(actualFPS)")
-            lines.append(String(format: "模型  %@%@  ·  缩放 %.2fx  ·  %@", s.rifeModel.title, archNote, s.rifeScaleFactor, s.rifePrecision.shortTitle))
-            lines.append(String(format: "核心  %d 核  ·  缓冲 %d 帧  ·  质量 %@", s.rifeWorkerCount, s.rifeQueueDepth, s.rifeQualityMode.title))
-            lines.append(String(format: "保护  转场保护 %@ (%.0f%%)  ·  静帧跳过 %@",
-                                s.rifeTransitionDetection ? "开" : "关",
-                                s.rifeSceneThreshold * 100,
-                                s.rifeStaticFrameSkip ? "开" : "关"))
+            let familyName = s.rifeModel == .appleLowLatency && stats.rifeStatusText.contains("回退")
+                ? "RIFE（回退）" : s.rifeModel.modelFamilyName
+            let modeLabel = s.rifeModel == .appleLowLatency ? targetText : s.rifeRateMode.statusTitle
+            lines.append("补帧  \(modeLabel) (\(familyName))  ·  目标 \(targetText)\(actualFPS)")
+            if s.rifeModel == .appleLowLatency {
+                lines.append("模型  Apple 低延迟 · 原始帧保持源画质")
+                lines.append("中间帧  最多 720p AI 生成后恢复源尺寸")
+                lines.append("处理  " + stats.rifeStatusText)
+            } else {
+                lines.append(String(format: "模型  %@  ·  缩放 %.2fx  ·  %@", s.rifeModel.title, s.rifeScaleFactor, s.rifePrecision.shortTitle))
+                lines.append(String(format: "核心  %d 核  ·  缓冲 %d 帧  ·  质量 %@", s.rifeWorkerCount, s.rifeQueueDepth, s.rifeQualityMode.title))
+                lines.append(String(format: "保护  转场保护 %@ (%.0f%%)  ·  静帧跳过 %@",
+                                    s.rifeTransitionDetection ? "开" : "关",
+                                    s.rifeSceneThreshold * 100,
+                                    s.rifeStaticFrameSkip ? "开" : "关"))
+            }
             let countSuffix = stats.rifeInterpolatedFrames > 0 ? "（已插帧 \(stats.rifeInterpolatedFrames) 帧）" : "（插帧管线就绪）"
             lines.append("输出  \(resLine)  \(countSuffix)")
             lines.append(enhanceLine)
@@ -503,19 +510,16 @@ final class StatsPanelView: NSView {
             }
             if d.container.formatName.contains("采集卡") {
                 if s.captureLowLatencyMode != .off {
-                    let latencyText = (s.captureLowLatencyMode == .extreme) ? "极限电竞 (1帧缓冲直出 · 零堆积)" : "平衡抗抖动 (2帧缓冲)"
+                    let latencyText = (s.captureLowLatencyMode == .extreme) ? "极限电竞 (最新输入 · AI在途≤2对)" : "平衡抗抖动 (输入≤2帧 · AI在途≤3对)"
                     lines.append("输入延迟  \(latencyText)")
                 }
-                if s.fake60FPSOptimization != .off {
-                    let cadence = CadenceDetector.shared.currentCadence
-                    if cadence == .fake60From30 {
-                        lines.append("假60识别  ✅ 命中 2:2 假60 (主机30FPS) · 已AI重构真60帧")
-                    } else {
-                        lines.append("假60识别  智能监听中 (HDMI 60Hz 防卡顿)")
-                    }
+                if s.fake60FPSOptimization == .on {
+                    lines.append("主机30模式  手动 · 60FPS采集 / 隔帧取样 / AI目标60FPS")
                 }
             }
-            if s.metalFX == .spatial || s.anime4k == .on {
+            if d.container.formatName.contains("采集卡"), !stats.rifeActive {
+                lines.append("状态  输入已达目标帧率 · AI 按需补帧")
+            } else if s.metalFX == .spatial || s.anime4k == .on {
                 lines.append("状态  ✅ \(familyName) 补帧 (\(targetText)) + 画质增强 全链路活跃")
             } else {
                 lines.append("状态  ✅ \(familyName) AI 补帧活跃运行中 · 输出 \(targetText)")
@@ -543,16 +547,11 @@ final class StatsPanelView: NSView {
             }
             if d.container.formatName.contains("采集卡") {
                 if s.captureLowLatencyMode != .off {
-                    let latencyText = (s.captureLowLatencyMode == .extreme) ? "极限电竞 (1帧缓冲直出 · 零堆积)" : "平衡抗抖动 (2帧缓冲)"
+                    let latencyText = (s.captureLowLatencyMode == .extreme) ? "极限电竞 (最新输入 · AI在途≤2对)" : "平衡抗抖动 (输入≤2帧 · AI在途≤3对)"
                     lines.append("输入延迟  \(latencyText)")
                 }
-                if s.fake60FPSOptimization != .off {
-                    let cadence = CadenceDetector.shared.currentCadence
-                    if cadence == .fake60From30 {
-                        lines.append("假60识别  ✅ 命中 2:2 假60 (主机30FPS) · 已AI重构真60帧")
-                    } else {
-                        lines.append("假60识别  智能监听中 (HDMI 60Hz 防卡顿)")
-                    }
+                if s.fake60FPSOptimization == .on {
+                    lines.append("主机30模式  手动 · 60FPS采集 / 隔帧取样 / AI目标60FPS")
                 }
             }
             if s.metalFX == .spatial || s.anime4k == .on {
@@ -591,6 +590,13 @@ final class StatsPanelView: NSView {
                                 s.captureDeliveredFPS, s.renderFPS, s.decodeFPS))
         } else {
             lines.append(String(format: "渲染 %6.1f fps    解码 %6.1f fps", s.renderFPS, s.decodeFPS))
+        }
+        if let latency = s.capturePipelineLatencyMS {
+            lines.append(String(format: "画面滞后  应用内约 %.1f ms（不含采集卡与屏幕）", latency))
+            if let p50 = s.captureLatencyP50MS, let p95 = s.captureLatencyP95MS {
+                lines.append(String(format: "近240帧  延迟 P50 %.1f / P95 %.1f ms", p50, p95))
+            }
+            lines.append("采集管线  " + s.captureProcessingDepth)
         }
         lines.append("帧    已解码 \(s.decodedFrames)  已上屏 \(s.presentedFrames)  丢帧 \(s.droppedFrames)")
         lines.append("队列  视频包 \(q.videoPacket)/\(q.videoPacketCapacity)"

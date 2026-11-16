@@ -269,6 +269,7 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         renderView.translatesAutoresizingMaskIntoConstraints = false
         renderView.videoSizeProvider = { [weak self] in self?.engine.videoSize ?? .zero }
         renderView.frameProvider = { [weak self] in self?.engine.nextFrameForDisplay() }
+        renderView.captureModeProvider = { [weak self] in self?.engine.isCaptureMode ?? false }
         // 字幕层：按**视频原始尺寸**渲染，之后与画面共用同一组 letterbox 顶点。
         //
         // 时间取播放时钟（`engine.currentTime`）而不是「最后上屏那一帧的 pts」——
@@ -546,7 +547,16 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
     func captureDiagnosticsText() -> String {
         guard engine.isCaptureMode else { return "\n[采集诊断] 当前不在采集模式\n" }
         let stats = statsPanel.currentRuntimeStats()
-        return String(format: "\n[采集诊断] 实测投递 %.2f fps | 渲染 %.2f fps | 上屏 %d 帧 | 丢帧 %d\n  色彩: %@\n  队列: %@\n",
+        let latencyText = stats.capturePipelineLatencyMS.map { String(format: "应用内画面滞后约 %.1f ms（不含采集卡与屏幕）", $0) } ?? "画面滞后尚未测出"
+        let distribution = stats.captureLatencyP50MS.flatMap { p50 in
+            stats.captureLatencyP95MS.map { String(format: " · 最近240帧 P50 %.1f / P95 %.1f ms", p50, $0) }
+        } ?? ""
+        let meanFPS = stats.currentTime > 0 ? Double(stats.presentedFrames) / stats.currentTime : 0
+        return "\n" + latencyText + distribution + " · " + stats.captureProcessingDepth
+            + String(format: " · 全程平均 %.2f fps", meanFPS)
+            + "\n补帧: \(stats.rifeStatusText) · 已生成 \(stats.rifeInterpolatedFrames) 帧"
+            + "\n" + engine.captureContentDescription
+            + String(format: "\n[采集诊断] 实测投递 %.2f fps | 渲染 %.2f fps | 上屏 %d 帧 | 丢帧 %d\n  色彩: %@\n  队列: %@\n",
                       stats.captureDeliveredFPS, stats.renderFPS,
                       stats.presentedFrames, stats.droppedFrames,
                       stats.captureColorInfo,
@@ -828,9 +838,11 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
                     self.resetStatsSampling()
                     self.showOverlay()
                     self.scheduleHideOverlay(delay: self.overlayHideDelay, hideCursorWhenDone: true)
+                    self.renderView.updatePreferredFPS(for: PlaybackSettings.shared.rifeRateMode,
+                                                       sourceFPS: self.engine.detail.video?.frameRate ?? fps)
                     let fakeMode = PlaybackSettings.shared.fake60FPSOptimization.title
                     let latencyMode = PlaybackSettings.shared.captureLowLatencyMode.title
-                    self.showStatusPill("🟢 采集卡已启动: \(videoDevice.localizedName) · \(latencyMode) · 假60重构[\(fakeMode)]", autoHideDelay: 3.5)
+                    self.showStatusPill("🟢 采集卡已启动: \(videoDevice.localizedName) · \(latencyMode) · \(fakeMode)", autoHideDelay: 3.5)
                 }
             } catch {
                 DispatchQueue.main.async {

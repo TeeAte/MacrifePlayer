@@ -6,9 +6,9 @@
 //    在纯黑视频/桌面背景下文字变暗、发灰模糊、对比度缺失的问题；
 // 2. 独立立体浮凸卡片（Solid Card Layer），搭配 1px 高光描边与微投影，清晰分区；
 // 3. 所有标签文字、数值指示器、复选框均升级为纯白与高饱和科技青色，对比鲜明锐利；
-// 4. 为模型架构定制独立的高对比 Info Badge 提示框（琥珀金/翡翠绿/冰晶蓝）；
+// 4. 为模型架构定制独立的高对比 Info Badge 提示框；
 // 5. 将所有补帧模型选择收拢至本面板，一站式调控内核与精度；
-// 6. 针对 RIFE、FLAVR、DistilDRBA 三套不同算法内核动态展示专属参数；
+// 6. 针对 RIFE 与 Apple 低延迟动态展示可用参数；
 // 7. 全局实时热切换：所有参数滑动即刻写入 PlaybackSettings 并通知播放引擎。
 
 import Foundation
@@ -52,8 +52,6 @@ final class PanelCardView: NSView {
 // MARK: - 高对比度模型提示徽章视图
 final class PanelInfoBadgeView: NSView {
     enum Theme {
-        case amber   // 动漫/DistilDRBA 专属
-        case emerald // FLAVR 3D-CNN / ANE 专属
         case cyan    // RIFE 光流专属
         case neutral // 通用说明
     }
@@ -87,14 +85,6 @@ final class PanelInfoBadgeView: NSView {
     func configure(text: String, theme: Theme) {
         label.stringValue = text
         switch theme {
-        case .amber:
-            layer?.backgroundColor = NSColor(red: 0.28, green: 0.17, blue: 0.06, alpha: 0.95).cgColor
-            layer?.borderColor = NSColor(red: 0.96, green: 0.65, blue: 0.18, alpha: 0.60).cgColor
-            label.textColor = NSColor(red: 1.0, green: 0.88, blue: 0.45, alpha: 1.0)
-        case .emerald:
-            layer?.backgroundColor = NSColor(red: 0.07, green: 0.24, blue: 0.13, alpha: 0.95).cgColor
-            layer?.borderColor = NSColor(red: 0.25, green: 0.86, blue: 0.45, alpha: 0.60).cgColor
-            label.textColor = NSColor(red: 0.45, green: 0.98, blue: 0.65, alpha: 1.0)
         case .cyan:
             layer?.backgroundColor = NSColor(red: 0.08, green: 0.20, blue: 0.28, alpha: 0.95).cgColor
             layer?.borderColor = NSColor(red: 0.30, green: 0.72, blue: 1.00, alpha: 0.60).cgColor
@@ -135,19 +125,6 @@ final class RIFEConfigPanelController: NSWindowController {
     private let rifeSmoothLabel = NSTextField(labelWithString: "1.00x")
     private let rifeLargeMotionCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let rifePyramidPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-
-    // 3.2 FLAVR 专属控件
-    private let flavrCustomStack = NSStackView()
-    private let flavrKernelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let flavrBackendPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let flavrGuardBadge = PanelInfoBadgeView()
-
-    // 3.3 DistilDRBA 专属控件
-    private let drbaCustomStack = NSStackView()
-    private let drbaCadencePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let drbaLineSlider = NSSlider(value: 0.85, minValue: 0.0, maxValue: 1.0, target: nil, action: nil)
-    private let drbaLineLabel = NSTextField(labelWithString: "85%")
-    private let drbaExaggeratedCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
 
     // 4. 推理缩放与分辨率
     private let resPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -343,15 +320,7 @@ final class RIFEConfigPanelController: NSWindowController {
         modelStack.alignment = .leading
         modelStack.spacing = 8
 
-        modelPopup.addItems(withTitles: [
-            "RIFE v4.26 (新一代高画质 · 通用物理光流)",
-            "RIFE v4.26 Heavy (大位移重度光流 · 动作大片)",
-            "RIFE v4.25 (高画质经典标准模型)",
-            "RIFE v4.25 Lite (超轻量 · 极速低功耗)",
-            "FLAVR 2X (3D 时空卷积 · 无光流 · ANE 硬件加速)",
-            "FLAVR-Fast (极速纯 ANE · 低能耗静音)",
-            "DistilDRBA (动漫二次元专属 · 距离比例调整)"
-        ])
+        modelPopup.addItems(withTitles: RIFEModelChoice.allCases.map(\.menuTitle))
         modelPopup.target = self
         modelPopup.action = #selector(onModelChanged(_:))
         modelStack.addArrangedSubview(makeRow(label: "模型内核:", control: modelPopup))
@@ -589,66 +558,6 @@ final class RIFEConfigPanelController: NSWindowController {
 
         parentStack.addArrangedSubview(rifeCustomStack)
 
-        // 2. FLAVR 专属布局
-        flavrCustomStack.orientation = .vertical
-        flavrCustomStack.alignment = .leading
-        flavrCustomStack.spacing = 7
-
-        flavrKernelPopup.removeAllItems()
-        for k in FLAVRKernelMode.allCases {
-            flavrKernelPopup.addItem(withTitle: k.title)
-        }
-        flavrKernelPopup.target = self
-        flavrKernelPopup.action = #selector(onFlavrKernelChanged(_:))
-        flavrCustomStack.addArrangedSubview(makeRow(label: "时空卷积核:", control: flavrKernelPopup))
-
-        flavrBackendPopup.removeAllItems()
-        for b in FLAVRBackend.allCases {
-            flavrBackendPopup.addItem(withTitle: b.title)
-        }
-        flavrBackendPopup.target = self
-        flavrBackendPopup.action = #selector(onFlavrBackendChanged(_:))
-        flavrCustomStack.addArrangedSubview(makeRow(label: "硬件加速器:", control: flavrBackendPopup))
-
-        flavrGuardBadge.configure(
-            text: "🛡️ 纯 3D 时空卷积（Flow-Agnostic · 无光流），水波、半透明、粒子反光天然抗撕裂。",
-            theme: .emerald
-        )
-        flavrCustomStack.addArrangedSubview(flavrGuardBadge)
-        flavrGuardBadge.translatesAutoresizingMaskIntoConstraints = false
-        flavrGuardBadge.widthAnchor.constraint(equalTo: flavrCustomStack.widthAnchor).isActive = true
-
-        parentStack.addArrangedSubview(flavrCustomStack)
-
-        // 3. DistilDRBA 专属布局
-        drbaCustomStack.orientation = .vertical
-        drbaCustomStack.alignment = .leading
-        drbaCustomStack.spacing = 7
-
-        drbaCadencePopup.removeAllItems()
-        for c in DRBACadence.allCases {
-            drbaCadencePopup.addItem(withTitle: c.title)
-        }
-        drbaCadencePopup.target = self
-        drbaCadencePopup.action = #selector(onDrbaCadenceChanged(_:))
-        drbaCustomStack.addArrangedSubview(makeRow(label: "抽帧检测:", control: drbaCadencePopup))
-
-        drbaLineSlider.target = self
-        drbaLineSlider.action = #selector(onDrbaLineChanged(_:))
-        drbaLineSlider.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        drbaLineLabel.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
-        drbaLineLabel.textColor = NSColor(red: 0.35, green: 0.82, blue: 1.0, alpha: 1.0)
-        let lineRow = makeRow(label: "线稿保真度:", control: drbaLineSlider)
-        lineRow.addArrangedSubview(drbaLineLabel)
-        drbaCustomStack.addArrangedSubview(lineRow)
-
-        configureCheckbox(drbaExaggeratedCheck, title: "动漫夸张瞬移与表情变形保护")
-        drbaExaggeratedCheck.target = self
-        drbaExaggeratedCheck.action = #selector(onDrbaExaggeratedChanged(_:))
-        drbaCustomStack.addArrangedSubview(drbaExaggeratedCheck)
-
-        parentStack.addArrangedSubview(drbaCustomStack)
-
         rootStack.addArrangedSubview(card.container)
         card.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
     }
@@ -746,14 +655,8 @@ final class RIFEConfigPanelController: NSWindowController {
         customFpsLabel.stringValue = String(format: "%.1f FPS", s.rifeCustomTargetFps)
 
         // 2. 模型与精度
-        switch s.rifeModel {
-        case .v426:      modelPopup.selectItem(at: 0)
-        case .heavy426:  modelPopup.selectItem(at: 1)
-        case .full425:   modelPopup.selectItem(at: 2)
-        case .lite425:   modelPopup.selectItem(at: 3)
-        case .flavr2x:   modelPopup.selectItem(at: 4)
-        case .flavrFast: modelPopup.selectItem(at: 5)
-        case .distilDRBA: modelPopup.selectItem(at: 6)
+        if let index = RIFEModelChoice.allCases.firstIndex(of: s.rifeModel) {
+            modelPopup.selectItem(at: index)
         }
         updateModelTip(s.rifeModel)
         updateCustomCardVisibility(for: s.rifeModel)
@@ -765,22 +668,6 @@ final class RIFEConfigPanelController: NSWindowController {
         updateRifeSmoothLabel(s.rifeFlowSmoothness)
         rifeLargeMotionCheck.state = s.rifeLargeMotionAssist ? .on : .off
         rifePyramidPopup.selectItem(at: max(0, min(2, s.rifePyramidStages - 1)))
-
-        // FLAVR
-        if let idx = FLAVRKernelMode.allCases.firstIndex(of: s.flavrKernelMode) {
-            flavrKernelPopup.selectItem(at: idx)
-        }
-        if let idx = FLAVRBackend.allCases.firstIndex(of: s.flavrBackend) {
-            flavrBackendPopup.selectItem(at: idx)
-        }
-
-        // DRBA
-        if let idx = DRBACadence.allCases.firstIndex(of: s.drbaCadence) {
-            drbaCadencePopup.selectItem(at: idx)
-        }
-        drbaLineSlider.doubleValue = s.drbaLineArtPreservation
-        updateDrbaLineLabel(s.drbaLineArtPreservation)
-        drbaExaggeratedCheck.state = s.drbaExaggeratedMotionGuard ? .on : .off
 
         // 4. 分辨率与缩放
         switch s.rifeResolution {
@@ -818,12 +705,12 @@ final class RIFEConfigPanelController: NSWindowController {
 
         // 6. 画面保护
         sceneDetectionCheckbox.state = s.rifeTransitionDetection ? .on : .off
-        sceneThresholdSlider.isEnabled = s.rifeTransitionDetection
+        sceneThresholdSlider.isEnabled = s.rifeModel != .appleLowLatency && s.rifeTransitionDetection
         sceneThresholdSlider.doubleValue = s.rifeSceneThreshold
         sceneThresholdLabel.stringValue = String(format: "%.0f%%", s.rifeSceneThreshold * 100)
 
         staticSkipCheckbox.state = s.rifeStaticFrameSkip ? .on : .off
-        staticThresholdSlider.isEnabled = s.rifeStaticFrameSkip
+        staticThresholdSlider.isEnabled = s.rifeModel != .appleLowLatency && s.rifeStaticFrameSkip
         staticThresholdSlider.doubleValue = s.rifeStaticThreshold
         staticThresholdLabel.stringValue = String(format: "%.1f%%", s.rifeStaticThreshold * 100)
 
@@ -841,9 +728,13 @@ final class RIFEConfigPanelController: NSWindowController {
     }
 
     private func updateCustomCardVisibility(for model: RIFEModelChoice) {
-        rifeCustomStack.isHidden = (model.family != .rife)
-        flavrCustomStack.isHidden = (model.family != .flavr)
-        drbaCustomStack.isHidden = (model.family != .drba)
+        customCardContainer?.isHidden = (model == .appleLowLatency)
+        rifeCustomStack.isHidden = (model == .appleLowLatency)
+        let controls: [NSControl] = [precisionPopup, resPopup, scaleSlider, qualityPopup, workerPopup,
+            queueDepthPopup, sceneDetectionCheckbox, sceneThresholdSlider, staticSkipCheckbox, staticThresholdSlider]
+        controls.forEach { $0.isEnabled = model != .appleLowLatency }
+        sceneThresholdSlider.isEnabled = model != .appleLowLatency && sceneDetectionCheckbox.state == .on
+        staticThresholdSlider.isEnabled = model != .appleLowLatency && staticSkipCheckbox.state == .on
     }
 
     private func updateScaleLabel(_ val: Double) {
@@ -858,10 +749,6 @@ final class RIFEConfigPanelController: NSWindowController {
 
     private func updateRifeSmoothLabel(_ val: Double) {
         rifeSmoothLabel.stringValue = String(format: "%.2fx", val)
-    }
-
-    private func updateDrbaLineLabel(_ val: Double) {
-        drbaLineLabel.stringValue = String(format: "%.0f%%", val * 100)
     }
 
     // MARK: - 事件监听与触发
@@ -899,46 +786,25 @@ final class RIFEConfigPanelController: NSWindowController {
     @objc private func onModelChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
         let s = PlaybackSettings.shared
-        switch modelPopup.indexOfSelectedItem {
-        case 0: s.rifeModel = .v426
-        case 1: s.rifeModel = .heavy426
-        case 2: s.rifeModel = .full425
-        case 3: s.rifeModel = .lite425
-        case 4: s.rifeModel = .flavr2x
-        case 5: s.rifeModel = .flavrFast
-        case 6: s.rifeModel = .distilDRBA
-        default: break
-        }
+        let models = RIFEModelChoice.allCases
+        let index = modelPopup.indexOfSelectedItem
+        guard models.indices.contains(index) else { return }
+        s.rifeModel = models[index]
         updateModelTip(s.rifeModel)
         updateCustomCardVisibility(for: s.rifeModel)
     }
 
     private func updateModelTip(_ model: RIFEModelChoice) {
         switch model {
-        case .flavr2x:
+        case .appleLowLatency:
             modelTipBadge.configure(
-                text: "💡 FLAVR 2X：采用 3D 时空卷积抛弃光流，100% 满血由 Apple Neural Engine 硬件驱动，零 CPU/GPU 采样回退，水波/烟雾/透明反光极佳。",
-                theme: .emerald
-            )
-        case .flavrFast:
-            modelTipBadge.configure(
-                text: "💡 FLAVR-Fast：超轻量 3D-CNN，极低算力开销，纯 ANE 静音低能耗，MacBook 电池播放首选。",
-                theme: .emerald
-            )
-        case .distilDRBA:
-            modelTipBadge.configure(
-                text: "💡 DistilDRBA：专攻动漫手绘有限动画（一拍二/一拍三），距离比例图锁定人物五官与线稿，杜绝拉扯融化。",
-                theme: .amber
+                text: "💡 Apple 低延迟：优先跟手与帧率，原始帧保持源画质，中间帧在最多 720p 生成后放大，运动细节可能偏软。支持 2X；其他帧率或不支持的系统回退 RIFE。",
+                theme: .cyan
             )
         case .v426, .heavy426:
             modelTipBadge.configure(
                 text: "💡 RIFE v4.26：基于残差光流金字塔（IFNet），擅长物理世界连续运动与实拍电影大动作。",
                 theme: .cyan
-            )
-        case .full425, .lite425:
-            modelTipBadge.configure(
-                text: "💡 RIFE v4.25：经典稳定光流架构，兼顾通用兼容性。",
-                theme: .neutral
             )
         }
     }
@@ -959,44 +825,6 @@ final class RIFEConfigPanelController: NSWindowController {
     @objc private func onRifePyramidChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
         PlaybackSettings.shared.rifePyramidStages = rifePyramidPopup.indexOfSelectedItem + 1
-    }
-
-    // FLAVR 专属事件
-    @objc private func onFlavrKernelChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let idx = flavrKernelPopup.indexOfSelectedItem
-        if idx >= 0 && idx < FLAVRKernelMode.allCases.count {
-            PlaybackSettings.shared.flavrKernelMode = FLAVRKernelMode.allCases[idx]
-        }
-    }
-
-    @objc private func onFlavrBackendChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let idx = flavrBackendPopup.indexOfSelectedItem
-        if idx >= 0 && idx < FLAVRBackend.allCases.count {
-            PlaybackSettings.shared.flavrBackend = FLAVRBackend.allCases[idx]
-        }
-    }
-
-    // DistilDRBA 专属事件
-    @objc private func onDrbaCadenceChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let idx = drbaCadencePopup.indexOfSelectedItem
-        if idx >= 0 && idx < DRBACadence.allCases.count {
-            PlaybackSettings.shared.drbaCadence = DRBACadence.allCases[idx]
-        }
-    }
-
-    @objc private func onDrbaLineChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        let val = round(drbaLineSlider.doubleValue * 20) / 20
-        updateDrbaLineLabel(val)
-        PlaybackSettings.shared.drbaLineArtPreservation = val
-    }
-
-    @objc private func onDrbaExaggeratedChanged(_ sender: Any?) {
-        guard !isUpdatingUI else { return }
-        PlaybackSettings.shared.drbaExaggeratedMotionGuard = (drbaExaggeratedCheck.state == .on)
     }
 
     @objc private func onPrecisionChanged(_ sender: Any?) {

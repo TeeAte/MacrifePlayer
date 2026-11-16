@@ -30,6 +30,10 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
     /// 向引擎取「此刻该显示的帧」。没有则返回 nil（继续显示上一帧）。
     var frameProvider: (() -> DecodedVideoFrame?)?
+    var captureModeProvider: (() -> Bool)?
+    private let captureGPUInFlight = DispatchSemaphore(value: 2)
+    private var usingCaptureLatency = false
+    private var redrawRequested = true
     /// 视频原始分辨率，用于等比缩放（letterbox / pillarbox）。
     var videoSizeProvider: (() -> CGSize)?
 
@@ -133,9 +137,16 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
     /// 根据当前补帧档位与源帧率动态调整 MTKView 刷新率（支持 120Hz ProMotion）
     func updatePreferredFPS(for mode: RIFERateMode, sourceFPS: Double) {
+        redrawRequested = true
         let target = StatsPanelView.targetFrameRate(source: sourceFPS, mode: mode)
         let fps = target > 0 ? Int(ceil(target)) : 60
-        self.preferredFramesPerSecond = max(60, min(120, fps))
+        if captureModeProvider?() == true, PlaybackSettings.shared.captureLowLatencyMode != .off {
+            // 用屏幕刷新率拉取已到点的插值帧，减少采集与显示相位不同导致的一拍等待。
+            let displayFPS = window?.screen?.maximumFramesPerSecond ?? 60
+            preferredFramesPerSecond = max(60, min(240, max(fps, displayFPS)))
+        } else {
+            preferredFramesPerSecond = max(60, min(120, fps))
+        }
     }
 
     /// 打包 4:2:2 的片段着色器（YUY2）。缺失时打包帧会走不了，
@@ -238,9 +249,21 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         // 尺寸变动时按需在 draw 中重新分配 Scaler
+        redrawRequested = true
     }
 
     func draw(in view: MTKView) {
+        let lowLatency = captureModeProvider?() == true && PlaybackSettings.shared.captureLowLatencyMode != .off
+        if lowLatency != usingCaptureLatency {
+            usingCaptureLatency = lowLatency
+            redrawRequested = true
+            (layer as? CAMetalLayer)?.maximumDrawableCount = lowLatency ? 2 : 3
+        }
+        // GPU 忙时不排队、不阻塞 UI；源帧留在有界队列，下一拍取更新的画面。
+        let permit = lowLatency ? captureGPUInFlight : nil
+        if let permit, permit.wait(timeout: .now()) != .success { return }
+        var committed = false
+        defer { if !committed { permit?.signal() } }
         guard let drawable = currentDrawable,
               let descriptor = currentRenderPassDescriptor,
               let queue = commandQueue else { return }
@@ -250,7 +273,12 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
         // 校验指针会导致回收复用的新帧被误判为旧帧而丢弃，产生高频跳帧与周期性卡顿。
         if let frame = frameProvider?() {
             upload(frame)
+            redrawRequested = true
         }
+
+        // 120Hz 只负责及时取到点的帧；没有新画面时保留上一张 drawable，
+        // 避免把同一张 60fps 画面渲染两遍，与补帧模型争抢 GPU。
+        if lowLatency && !redrawRequested { return }
 
         guard let commandBuffer = queue.makeCommandBuffer() else { return }
 
@@ -364,7 +392,15 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
             }
         }
 
+        // CVMetalTexture 与源缓冲必须活到 GPU 完成，否则采集驱动可能提前复用 IOSurface。
+        let resources = (heldPixelBuffer, lumaRef, chromaRef, packedRef)
+        commandBuffer.addCompletedHandler { _ in
+            withExtendedLifetime(resources) {}
+            permit?.signal()
+        }
         commandBuffer.present(drawable)
+        committed = true
+        redrawRequested = false
         commandBuffer.commit()
     }
 
@@ -593,6 +629,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
     /// 清掉当前画面（停止播放 / 换文件时用）。
     func clearFrame() {
+        redrawRequested = true
         lumaRef = nil
         chromaRef = nil
         lumaTexture = nil
