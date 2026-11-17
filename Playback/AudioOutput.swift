@@ -186,6 +186,12 @@ final class AudioOutput {
         player.pause()
     }
 
+    /// Keep scheduled PCM and the sample position while a file refills its AI
+    /// reservoir. This is not a seek/flush and must not block the display thread.
+    func pauseForBuffering() {
+        if player.isPlaying { player.pause() }
+    }
+
     /// 丢弃所有已排队 buffer 并把时间轴归零。用于 seek / 打开新文件。
     /// 调用后必须重新 schedule 才会出声。
     func flush() {

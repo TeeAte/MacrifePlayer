@@ -83,6 +83,10 @@ final class CoreMLRIFEEngine {
 
     private let lock = NSLock()
     private var engines: [Engine] = []
+    var workerCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return max(1, engines.count)
+    }
     /// engines[i] 的互斥锁：双实例时各 worker 独占一把零争抢；
     /// 若初始化只成功了一个实例，两 worker 在同一把锁上退化为串行（正确性优先）。
     private var engineLocks: [NSLock] = []
@@ -161,12 +165,13 @@ final class CoreMLRIFEEngine {
 
         initQueue.async { [weak self] in
             guard let self else { return }
+            let count = 2
             // 双实例：worker 并行推理（见 engines 注释）。第二个实例编译失败
             // 不至于全灭 —— 成功几个用几个（runPair 会按实例数取模并串行化）。
             var built: [Engine] = []
             var buildError: Error?
             var usedVariant = variant
-            for _ in 0..<2 {
+            for _ in 0..<count {
                 do {
                     let eng = try Engine(modelVariant: usedVariant,
                                          sourceWidth: sourceWidth, sourceHeight: sourceHeight,
@@ -185,7 +190,7 @@ final class CoreMLRIFEEngine {
                 if reason.contains("档位不兼容") || reason.contains("通道") {
                     NSLog("[CoreMLRIFE] %@ 档位不可用，自动回落到 %@", usedVariant, fallbackVariant)
                     usedVariant = fallbackVariant
-                    for _ in 0..<2 {
+                    for _ in 0..<count {
                         do {
                             let eng = try Engine(modelVariant: usedVariant,
                                                  sourceWidth: sourceWidth, sourceHeight: sourceHeight,
@@ -232,7 +237,10 @@ final class CoreMLRIFEEngine {
     /// 重置状态（Seek 或切换视频时调用）。各 Engine 的 pair 缓存以缓冲区
     /// 对象身份为键，seek 后新缓冲自然 miss；这里清掉残余引用防串帧。
     func reset() {
-        lock.lock(); engines.forEach { $0.resetPairState() }; lock.unlock()
+        lock.lock(); let current = engines; let locks = engineLocks; lock.unlock()
+        for (index, engine) in current.enumerated() {
+            locks[index].lock(); engine.resetPairState(); locks[index].unlock()
+        }
     }
 
     // MARK: 成对插值接口（多 worker 并行的执行单元）
@@ -482,10 +490,6 @@ private final class Engine: @unchecked Sendable {
     // 源分辨率融合缓冲
     private var fullRing: [MTLBuffer] = []
     private var fullCursor = 0
-    private var warped0Full: MTLBuffer!
-    private var warped1Full: MTLBuffer!
-    private var flowFull: MTLBuffer!
-    private var maskFull: MTLBuffer!
     private var outRGBFull: MTLBuffer!
 
     // 逐对复用缓存：cur 帧的转换/encode 结果下一对变 prev
@@ -566,7 +570,7 @@ private final class Engine: @unchecked Sendable {
         //   .all 28.7ms/链（34.8 对/s）≫ cpuAndGPU 57.6ms（17.4 对/s）；
         //   且双线程并发下 .all 聚合 44 对/s（近线性扩展），GPU 链并发反而退化到 22 对/s。
         //   原版二进制注记 "head/block0/...: CPU+ANE / block3: CPU+GPU" 即 .all 的实际落点。
-        // MP_RIFE_UNITS 可覆盖（A/B 用）：gpu|split|cpu
+        // 固定开放全部计算单元；不接受 CPU/GPU 单一路径的启动覆盖。
         let names = ["encode", "block0", "block1", "block2", "block3", "block4"]
         func makeConfig(units: MLComputeUnits) -> MLModelConfiguration {
             let c = MLModelConfiguration()
@@ -575,21 +579,13 @@ private final class Engine: @unchecked Sendable {
             return c
         }
         let aneConfig = makeConfig(units: .all)
-        let gpuConfig = makeConfig(units: .cpuAndGPU)
-        let cpuConfig = makeConfig(units: .cpuOnly)
-        let splitConfig: (String) -> MLModelConfiguration = { $0 == "block3" ? gpuConfig : aneConfig }
         var loaded: [String: MLModel] = [:]
         for n in names {
             let url = dir.appendingPathComponent("\(n).mlmodelc")
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw EngineError.setup("缺少 \(n).mlmodelc: \(dir.path)")
             }
-            switch ProcessInfo.processInfo.environment["MP_RIFE_UNITS"] {
-            case "gpu":   loaded[n] = try MLModel(contentsOf: url, configuration: gpuConfig)
-            case "split": loaded[n] = try MLModel(contentsOf: url, configuration: splitConfig(n))
-            case "cpu":   loaded[n] = try MLModel(contentsOf: url, configuration: cpuConfig)
-            default:      loaded[n] = try MLModel(contentsOf: url, configuration: aneConfig)
-            }
+            loaded[n] = try MLModel(contentsOf: url, configuration: aneConfig)
         }
         encodeModel = loaded["encode"]!
         blocks = (0...4).compactMap { loaded["block\($0)"] }
@@ -622,7 +618,7 @@ private final class Engine: @unchecked Sendable {
         // 5. Metal 内核（离线工程验证过的全套 + 本工程新增的 NV12 互转）
         let library = try dev.makeLibrary(source: Self.metalSource, options: nil)
         for fn in ["warp_nchw", "concat_multi", "copy_nchw", "blend_nchw", "add_nchw",
-                   "resize_nchw", "flow_upscale_nchw",
+                   "resize_nchw", "flow_upscale_nchw", "rife_blend_source",
                    "nv12_to_rgb_nchw", "rgb_nchw_to_nv12_y", "rgb_nchw_to_nv12_uv"] {
             guard let f = library.makeFunction(name: fn) else {
                 throw EngineError.kernel(fn)
@@ -645,10 +641,6 @@ private final class Engine: @unchecked Sendable {
 
         // 7. 源分辨率融合缓冲（4K 下 ~400 MB；卷积仍只付模型分辨率的成本）
         fullRing = [try srcBuffer(channels: 3), try srcBuffer(channels: 3), try srcBuffer(channels: 3)]
-        warped0Full = try srcBuffer(channels: 3)
-        warped1Full = try srcBuffer(channels: 3)
-        flowFull = try srcBuffer(channels: 4)
-        maskFull = try srcBuffer(channels: 1)
         outRGBFull = try srcBuffer(channels: 3)
 
         // 8. 输出 NV12 池
@@ -1143,27 +1135,11 @@ private final class Engine: @unchecked Sendable {
         guard let full0 = srcFull0, let full1 = srcFull1 else {
             throw EngineError.output("源分辨率帧缺失")
         }
-        let mw = UInt32(modelW), mh = UInt32(modelH)
-        let sw = UInt32(srcW), sh = UInt32(srcH)
-        let grid = MTLSize(width: srcW, height: srcH, depth: 1)
-
-        var fp = FlowUpscaleParams(srcWidth: mw, srcHeight: mh, dstWidth: sw, dstHeight: sh,
-                                   scaleX: Float(srcW) / Float(modelW),
-                                   scaleY: Float(srcH) / Float(modelH))
-        try dispatch("flow_upscale_nchw", [(flowAcc.buffer, 0), (flowFull, 0)],
-                     bytes: &fp, length: MemoryLayout<FlowUpscaleParams>.size, grid: grid)
-
-        var rp = NCHWResizeParams(srcWidth: mw, srcHeight: mh, dstWidth: sw, dstHeight: sh, channels: 1)
-        try dispatch("resize_nchw", [(mask, 0), (maskFull, 0)],
-                     bytes: &rp, length: MemoryLayout<NCHWResizeParams>.size, grid: grid)
-
-        var p3s = Params(width: sw, height: sh, channels: 3)
-        try dispatch("warp_nchw", [(full0, 0), (flowFull, 0), (warped0Full, 0)],
-                     bytes: &p3s, length: MemoryLayout<Params>.size, grid: grid)
-        try dispatch("warp_nchw", [(full1, 0), (flowFull, 2 * srcH * srcW * 2), (warped1Full, 0)],
-                     bytes: &p3s, length: MemoryLayout<Params>.size, grid: grid)
-        try dispatch("blend_nchw", [(warped0Full, 0), (warped1Full, 0), (maskFull, 0), (out, 0)],
-                     bytes: &p3s, length: MemoryLayout<Params>.size, grid: grid)
+        var params = RIFEMetalKernels.SourceBlendParams(sourceWidth: UInt32(srcW), sourceHeight: UInt32(srcH),
+            modelWidth: UInt32(modelW), modelHeight: UInt32(modelH))
+        try dispatch("rife_blend_source", [(full0,0),(full1,0),(flowAcc.buffer,0),(mask,0),(out,0)],
+            bytes: &params, length: MemoryLayout<RIFEMetalKernels.SourceBlendParams>.size,
+            grid: MTLSize(width: srcW,height: srcH,depth: 1))
         return out
     }
 
@@ -1338,7 +1314,7 @@ private final class Engine: @unchecked Sendable {
 
 private extension Engine {
 
-    static var metalSource: String { """
+    static var metalSource: String { RIFEMetalKernels.source + "\n" + """
     #include <metal_stdlib>
     using namespace metal;
 
@@ -1580,34 +1556,8 @@ private extension Engine {
 
         float yv = yTex.read(uint2(fx, fy)).r;
         float2 uv = uvTex.read(uint2(fx / 2.0f, fy / 2.0f)).rg;
-        float cb = uv.x - 0.5f;
-        float cr = uv.y - 0.5f;
-
-        if (p.fullRange < 0.5f) {
-            // limited range: Y [16,235]/255, CbCr [16,240]/255
-            yv = (yv - 16.0f / 255.0f) * (255.0f / 219.0f);
-            float cs = 255.0f / 224.0f;
-            cb *= cs;
-            cr *= cs;
-        }
-
-        float r, g, b;
-        if (p.colorSpace > 1.5f) {
-            // BT.2020 (HDR)
-            r = yv + 1.4746f * cr;
-            g = yv - 0.16455f * cb - 0.5714f * cr;
-            b = yv + 1.8814f * cb;
-        } else if (p.colorSpace > 0.5f) {
-            // BT.709
-            r = yv + 1.5748f * cr;
-            b = yv + 1.8556f * cb;
-            g = yv - 0.1873f * cb - 0.4681f * cr;
-        } else {
-            // BT.601
-            r = yv + 1.4020f * cr;
-            b = yv + 1.7720f * cb;
-            g = yv - 0.3441f * cb - 0.7141f * cr;
-        }
+        float3 rgb = rife_yuv_to_rgb(yv, uv.x, uv.y, p.fullRange > 0.5f, p.colorSpace);
+        float r=rgb.r,g=rgb.g,b=rgb.b;
 
         uint spatial = gid.y * W + gid.x;
         uint plane = H * W;
@@ -1629,43 +1579,8 @@ private extension Engine {
 
     static inline void rgb_to_yuv(float r, float g, float b, bool fullRange, float colorSpace,
                                   thread float &Y, thread float &Cb, thread float &Cr) {
-        if (colorSpace > 1.5f) {
-            // BT.2020
-            if (fullRange) {
-                Y  = 0.2627f * r + 0.6780f * g + 0.0593f * b;
-                Cb = (b - Y) / 1.8814f + 0.5f;
-                Cr = (r - Y) / 1.4746f + 0.5f;
-            } else {
-                float normY = 0.2627f * r + 0.6780f * g + 0.0593f * b;
-                float normCb = (b - normY) / 1.8814f;
-                float normCr = (r - normY) / 1.4746f;
-                Y  = (16.0f + 219.0f * normY) / 255.0f;
-                Cb = (128.0f + 224.0f * normCb) / 255.0f;
-                Cr = (128.0f + 224.0f * normCr) / 255.0f;
-            }
-        } else if (colorSpace > 0.5f) {
-            // BT.709
-            if (fullRange) {
-                Y  = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-                Cb = -0.1146f * r - 0.3854f * g + 0.5f * b + 0.5f;
-                Cr = 0.5f * r - 0.4542f * g - 0.0458f * b + 0.5f;
-            } else {
-                Y  = (16.0f + 65.481f * r + 128.553f * g + 24.966f * b) / 255.0f;
-                Cb = (128.0f - 37.797f * r - 74.203f * g + 112.0f * b) / 255.0f;
-                Cr = (128.0f + 112.0f * r - 93.786f * g - 18.214f * b) / 255.0f;
-            }
-        } else {
-            // BT.601
-            if (fullRange) {
-                Y  = 0.299f * r + 0.587f * g + 0.114f * b;
-                Cb = -0.1687f * r - 0.3313f * g + 0.5f * b + 0.5f;
-                Cr = 0.5f * r - 0.4187f * g - 0.0813f * b + 0.5f;
-            } else {
-                Y  = (16.0f + 65.738f * r + 129.057f * g + 25.064f * b) / 255.0f;
-                Cb = (128.0f - 37.945f * r - 74.494f * g + 112.439f * b) / 255.0f;
-                Cr = (128.0f + 112.439f * r - 94.154f * g - 18.285f * b) / 255.0f;
-            }
-        }
+        float3 value = rife_rgb_to_yuv(float3(r,g,b),fullRange,colorSpace);
+        Y=value.x; Cb=value.y; Cr=value.z;
     }
 
     kernel void rgb_nchw_to_nv12_y(const device half *src   [[buffer(0)]],

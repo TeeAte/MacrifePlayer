@@ -131,6 +131,11 @@ final class RIFEConfigPanelController: NSWindowController {
     private let precisionInfoLabel = NSTextField(labelWithString: "")
     private let latencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let console30Popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let captureTextCheckbox = NSButton(checkboxWithTitle: "静止文字稳定",target: nil,action: nil)
+    private let fileBufferPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let fileMemoryPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private static let bufferSeconds: [Double] = [0.5, 1, 2, 4]
+    private static let bufferMemory: [Int] = [256, 512, 1024, 2048]
     private let resolutionTip = NSTextField(wrappingLabelWithString: "")
     private var protectionCard: NSView?
     private let precisionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -386,6 +391,32 @@ final class RIFEConfigPanelController: NSWindowController {
         rootStack.addArrangedSubview(resCard.container)
         resCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
+        if inputKind == .videoFile {
+            let card = makeCardView(title: "视频预计算与缓冲")
+            let stack = NSStackView()
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 7
+            fileBufferPopup.addItems(withTitles: ["0.5 秒", "1 秒", "2 秒（推荐）", "4 秒"])
+            fileBufferPopup.target = self
+            fileBufferPopup.action = #selector(onFileBufferChanged(_:))
+            fileMemoryPopup.addItems(withTitles: ["256 MB", "512 MB", "1 GB（推荐）", "2 GB"])
+            fileMemoryPopup.target = self
+            fileMemoryPopup.action = #selector(onFileMemoryChanged(_:))
+            stack.addArrangedSubview(makeRow(label: "预缓冲时长:", control: fileBufferPopup))
+            stack.addArrangedSubview(makeRow(label: "帧缓存预算:", control: fileMemoryPopup))
+            let tip = NSTextField(wrappingLabelWithString: "先完成一段补帧再同步播放音画；缓存耗尽时等待回填。实际缓冲时长受分辨率与内存预算限制，模型内存另计。增加缓存可缓解短时抖动；持续推理速度不足时仍需等待。")
+            tip.font = .systemFont(ofSize: 11.5)
+            tip.textColor = .secondaryLabelColor
+            stack.addArrangedSubview(tip)
+            tip.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            card.contentView.addSubview(stack)
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            pinToEdges(stack, in: card.contentView)
+            rootStack.addArrangedSubview(card.container)
+            card.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
+        }
+
         if inputKind == .captureCard {
         // Live-input controls belong only to the capture settings page.
         let perfCard = makeCardView(title: "采集延迟策略（所有补帧后端通用）")
@@ -411,6 +442,14 @@ final class RIFEConfigPanelController: NSWindowController {
 
         let inputButton = NSButton(title: "采集设备与输入格式…", target: self, action: #selector(onOpenCaptureDevice(_:)))
         perfStack.addArrangedSubview(inputButton)
+        captureTextCheckbox.target = self
+        captureTextCheckbox.action = #selector(onCaptureTextChanged(_:))
+        perfStack.addArrangedSubview(captureTextCheckbox)
+        let textTip = NSTextField(wrappingLabelWithString: "局部稳定静止文字笔画，减少原帧与中间帧交替闪烁。文字检测在后台进行；移动人物与背景继续使用 AI 插帧。")
+        textTip.font = .systemFont(ofSize: 11.5)
+        textTip.textColor = .secondaryLabelColor
+        perfStack.addArrangedSubview(textTip)
+        textTip.widthAnchor.constraint(equalTo: perfStack.widthAnchor).isActive = true
 
         perfCard.contentView.addSubview(perfStack)
         perfStack.translatesAutoresizingMaskIntoConstraints = false
@@ -645,6 +684,10 @@ final class RIFEConfigPanelController: NSWindowController {
         if inputKind == .captureCard {
             latencyPopup.selectItem(at: CaptureLowLatencyMode.allCases.firstIndex(of: s.captureLowLatencyMode) ?? 1)
             console30Popup.selectItem(at: Fake60OptimizationMode.allCases.firstIndex(of: s.fake60FPSOptimization) ?? 0)
+            captureTextCheckbox.state = s.captureTextStability ? .on : .off
+        } else {
+            fileBufferPopup.selectItem(at: Self.bufferSeconds.firstIndex(of: s.fileBufferSeconds) ?? 2)
+            fileMemoryPopup.selectItem(at: Self.bufferMemory.firstIndex(of: s.fileBufferMemoryMB) ?? 2)
         }
         resolutionTip.stringValue = s.interpolationBackend == .rifeCoreML || s.interpolationBackend == .rifeMetalFast
             ? "只降低运动估计预算，最终用源尺寸画面融合。此设置与输出分辨率、目标帧率独立。"
@@ -695,6 +738,21 @@ final class RIFEConfigPanelController: NSWindowController {
     }
 
     // MARK: - 事件监听与触发
+
+    @objc private func onCaptureTextChanged(_ sender: Any?) {
+        guard !isUpdatingUI else { return }
+        settings.captureTextStability = captureTextCheckbox.state == .on
+    }
+
+    @objc private func onFileBufferChanged(_ sender: Any?) {
+        guard !isUpdatingUI, Self.bufferSeconds.indices.contains(fileBufferPopup.indexOfSelectedItem) else { return }
+        settings.fileBufferSeconds = Self.bufferSeconds[fileBufferPopup.indexOfSelectedItem]
+    }
+
+    @objc private func onFileMemoryChanged(_ sender: Any?) {
+        guard !isUpdatingUI, Self.bufferMemory.indices.contains(fileMemoryPopup.indexOfSelectedItem) else { return }
+        settings.fileBufferMemoryMB = Self.bufferMemory[fileMemoryPopup.indexOfSelectedItem]
+    }
 
     @objc private func handleSettingsChanged(_ note: Notification) {
         guard !isUpdatingUI else { return }

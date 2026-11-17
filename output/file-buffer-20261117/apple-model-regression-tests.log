@@ -1,0 +1,10 @@
+2026-11-17 10:20:33.714 apple-interpolation-tests[20591:5270184] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-17 10:20:34.012 apple-interpolation-tests[20591:5270184] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-17 10:20:34.308 apple-interpolation-tests[20591:5270184] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-17 10:20:34.330 apple-interpolation-tests[20591:5270184] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-17 10:20:34.388 apple-interpolation-tests[20591:5270184] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+Apple 1280x720 补帧 → 1920x1080 · 处理均耗 7.3 ms · 系统真实中间帧
+PASS: Apple native 1080p source → 720p AI → 1080p output; mean 6.85 ms, p95 7.30 ms (downscale + AI + upscale, 30 samples)
+PASS: 1080p60 capture / console30 → actual AI60; 35 original + 34 AI frames, correct first-copy PTS and 60Hz spacing
+PASS: independent file24→48 and capture30→60 model histories; closing capture preserves file interpolation
+PASS: buffered file native-size AI output, 4:2:0 lifetime, PTS and unchanged original frame

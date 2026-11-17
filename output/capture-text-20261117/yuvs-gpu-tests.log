@@ -1,0 +1,8 @@
+PASS: YUVS -> NV12 18×6, video range; every Y/UV byte verified
+PASS: YUVS -> NV12 18×6, full range; every Y/UV byte verified
+PASS: YUVS -> NV12 1920×1080, video range; every Y/UV byte verified
+PASS: YUVS -> NV12 2560×1440, video range; every Y/UV byte verified
+PASS: YUVS -> NV12 3840×2160, video range; every Y/UV byte verified
+PASS: YUVS -> NV12 18×6, video range; every Y/UV byte verified
+PASS: wrong source format rejected
+PASS: reset/recreate; no capture device or AI model used

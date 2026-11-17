@@ -14,12 +14,13 @@ final class RifeMetalFastInterpolator {
     private var failures: [String: String] = [:]
     private var generated = 0
     private var elapsed = 0.0
+    private var processingWindow = InterpolationProcessingWindow()
     private var status = "RifeMetal Fast 待命"
     private var active = false
 
     var snapshot: (frames: Int, status: String, processingSeconds: Double, active: Bool) {
         statsLock.lock(); defer { statsLock.unlock() }
-        return (generated, status, generated > 0 ? elapsed / Double(generated) : 0, active)
+        return (generated, status, processingWindow.estimate, active)
     }
 
     func reset() {
@@ -27,6 +28,7 @@ final class RifeMetalFastInterpolator {
         session = nil; configurationKey = ""; failures.removeAll()
         statsLock.lock()
         generated = 0; elapsed = 0; status = "RifeMetal Fast 待命"; active = false
+        processingWindow.reset()
         statsLock.unlock()
     }
 
@@ -57,6 +59,7 @@ final class RifeMetalFastInterpolator {
                 session = try RifeMetalFastSession(sourceWidth: width, sourceHeight: height,
                     maxInputHeight: maxInputHeight, colorSpaceCode: frame.colorSpaceCode)
                 configurationKey = key
+                statsLock.lock(); processingWindow.reset(); statsLock.unlock()
             }
             guard let session else { return nil }
             let start = CACurrentMediaTime()
@@ -64,7 +67,10 @@ final class RifeMetalFastInterpolator {
             let count = frames.filter(\.isInterpolated).count
             statsLock.lock()
             generated += count
-            if count > 0 { elapsed += CACurrentMediaTime() - start }
+            if count > 0 {
+                let duration = CACurrentMediaTime() - start
+                elapsed += duration; processingWindow.record(duration / Double(count))
+            }
             active = true
             status = "RifeMetal Fast · RIFE 4.25 FP16 · 原尺寸合成 \(session.width)×\(session.height) · 光流 \(session.flowWidth)×\(session.flowHeight)"
             status += count > 0 ? String(format: " · 处理均耗 %.1f ms", elapsed * 1000 / Double(generated)) : " · 首帧缓存就绪"

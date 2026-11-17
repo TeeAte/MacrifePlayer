@@ -9,7 +9,7 @@ mkdir -p "$app/Contents/MacOS"
 ln -s "$PWD/Macrife Player.app/Contents/Resources" "$app/Contents/Resources"
 xcrun swiftc -O -module-cache-path "$test_dir/modules" -I "$products" \
     "$products/RifeMetal.o" "$products/RifeMetalCore.o" \
-    Playback/VideoDecoder.swift Playback/AppleLowLatencyInterpolator.swift \
+    Playback/VideoDecoder.swift Playback/AppleLowLatencyInterpolator.swift Playback/CaptureTextStabilizer.swift \
     Playback/Packed422GPUConverter.swift Playback/LiveCapturePipeline.swift Playback/RifeMetalFastInterpolator.swift \
     Tests/RifeMetalSourceDetailTests.swift \
     -o "$app/Contents/MacOS/DetailTests"

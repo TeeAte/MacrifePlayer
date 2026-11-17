@@ -22,7 +22,22 @@ enum CaptureLatencyTests {
         testConsole30RepeatsCannotReplaceQueuedOriginal()
         testCaptureTimestampEpochChanges()
         testFileAndCaptureFrameContexts()
-        print("PASS: 18 capture/context regression tests")
+        testProcessingCostRecoversAfterColdStart()
+        print("PASS: 19 capture/context regression tests")
+    }
+
+    static func testProcessingCostRecoversAfterColdStart() {
+        var window = InterpolationProcessingWindow()
+        window.record(0.6); window.record(0.016); window.record(0.018)
+        precondition(abs(window.estimate - 0.018) < 0.000001)
+        for _ in 0..<7 { window.record(0.014) }
+        window.record(0.2)
+        precondition(abs(window.estimate - 0.014) < 0.000001)
+        let due = CapturePlayoutClock.livePresentationTime(latestPTS: 10,receivedHostTime: 20,hostTime: 20,
+            sourceFPS: 30,processingSeconds: window.estimate)
+        precondition(10 - due < 0.032, "A past compile spike must not permanently delay live capture")
+        window.reset(); window.record(.nan)
+        precondition(window.estimate == 0)
     }
 
     static func testFileAndCaptureFrameContexts() {

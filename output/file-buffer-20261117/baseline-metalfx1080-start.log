@@ -1,0 +1,45 @@
+2026-11-17 09:48:09.365 Macrife Player[12514:5211745] [ModelPackageManager] 缓存模型包已就绪: /Users/teeate/Library/Application Support/MacrifePlayer/Models
+[PlaybackEngine] 字幕：这个文件没有字幕轨
+[PlaybackEngine] 视频解码器已建立: h264 (硬解 VideoToolbox) [MTS/隔行提示: false, 时间轴重建: false]
+[PlaybackEngine] 音频输出已启动: 48000.0Hz / 2ch
+[PlaybackEngine] 已打开 baseline-metalfx-4k24.mp4 — mov,mp4,m4a,3gp,3g2,mj2 · 03:10 · h264 4096x2304 @24.000 fps · aac 48000 Hz / 2 ch
+[PlaybackEngine] 状态变迁: opening -> playing
+[PlaybackEngine] 保活：已持有电源断言（MacrifePlayer 播放中）
+[PlaybackEngine] 首帧上屏 pts=0.000s (音视频时钟基准已绝对对齐)
+
+===== 性能监看（MP_DUMP_STATS）=====
+① 源视频参数
+baseline-metalfx-4k24.mp4  ·  QuickTime / MOV
+03:10  ·  总码率 50.85 Mb/s  ·  0 MB  ·  流 2（V1/A1/S0）
+视频  h264 Main L5.1  4096x2304  24 fps
+像素 yuv420p  ·  码率 50.34 Mb/s  ·  色彩 bt709/bt709/bt709/tv
+音频  aac LC  48000 Hz · 2 ch (stereo) · fltp
+音轨  English · aac (2ch) [默认]
+② 补帧后（输出）
+补帧  48 fps (MetalFX)  ·  目标 48 fps · 实测 10.6 FPS
+模型  MetalFX · 原帧保持源画质
+实验  估算光流 / 平面深度 · 性能未验证
+推理预算  1080p · 系统管理（不公开 FP16 / FP32 控制）
+处理  MetalFX 实验性 1920x1080 · 估算光流 / 平面深度 · 处理均耗 47.0 ms
+输出  4096x2304  （已插帧 329 帧）
+增强  MetalFX 关闭  ·  Anime4K 关闭
+解码  硬解（VideoToolbox · h264）
+状态  ✅ MetalFX AI 补帧活跃运行中 · 输出 48 fps
+③ 性能参数
+渲染   10.6 fps    解码   17.3 fps
+帧    已解码 331  已上屏 404  丢帧 255
+队列  视频包 90/200  音频包 128/128  帧 0/48
+音画  时钟 14.28s  末帧 13.21s  偏差 +1.075s  ·  音频主时钟
+资源  CPU 0.0%  内存 RSS 425 / 足迹 1044 / 压缩 0 MB  ·  GPU Apple M1 Pro
+状态  播放中
+
+  panelVisible: true
+
+---- 字幕层 ----
+引擎    无字幕
+已上传  （尚未绘制过字幕层）
+主动     14.284s · 没有渲染器，取不到位图
+
+===== 结束 =====
+[PlaybackEngine] 状态变迁: playing -> idle
+[PlaybackEngine] 保活：已释放电源断言

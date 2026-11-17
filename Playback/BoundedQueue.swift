@@ -20,11 +20,12 @@ final class BoundedQueue<T> {
 
     /// 入队。队列满时最多等 `timeout` 秒；超时返回 false（元素没有被消耗）。
     @discardableResult
-    func push(_ item: T, timeout: TimeInterval = 0.1) -> Bool {
+    func push(_ item: T, timeout: TimeInterval = 0.1, limit: Int? = nil) -> Bool {
         condition.lock()
         defer { condition.unlock() }
         let deadline = Date().addingTimeInterval(timeout)
-        while items.count >= capacity && !closed {
+        let budget = max(1, min(capacity, limit ?? capacity))
+        while items.count >= budget && !closed {
             if !condition.wait(until: deadline) { return false }
         }
         if closed { return false }

@@ -167,8 +167,13 @@ enum InterpolationSettingsTests {
             capture.hdrToneMapping = .aces
             precondition(file.hdrToneMapping == .off && capture.hdrToneMapping == .aces)
             capture.fake60FPSOptimization = .on
+            capture.captureTextStability = false
+            file.fileBufferSeconds = 4
+            file.fileBufferMemoryMB = 2048
             file.resetRIFEToDefaults()
+            precondition(file.fileBufferSeconds == 2 && file.fileBufferMemoryMB == 1024)
             precondition(capture.fake60FPSOptimization == .on, "Video defaults must not change host30 settings")
+            precondition(!capture.captureTextStability, "Video defaults must not change capture text stabilization")
             precondition(capture.rifeRateMode == .fps120, "Reset only the chosen input's profile")
         }
     }

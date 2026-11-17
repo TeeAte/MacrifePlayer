@@ -1,0 +1,112 @@
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.452 capture-text-tests[40287:5379582] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 11:28:10.506 capture-text-tests[40287:5379582] [AppleInterpolation] 会话就绪: 1024x576 → 1920x1080（原帧保留）
+Static text video-range: MAE 31.717 → 0.000 /255
+Static text full-range: MAE 31.717 → 0.100 /255
+YUVS colored static text video: 20.612 → 0.000
+Colored chroma: 11.455 → 0.000
+YUVS colored static text full: 20.612 → 0.137
+Colored chroma: 11.455 → 0.183
+Detected text regions: 1
+Actual Apple576 static text: MAE 50.972 → 0.000 /255
+1080p glyph ROI GPU mean 0.155ms, encode+wait p95 0.467ms
+PASS: MetalFX capture text batch and original-frame identity
+PASS: static glyphs, moving-text bypass, exact outside-ROI preservation, source identity and genuine midpoint motion

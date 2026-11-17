@@ -268,6 +268,10 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
 
         renderView.translatesAutoresizingMaskIntoConstraints = false
         renderView.videoSizeProvider = { [weak self] in self?.engine.videoSize ?? .zero }
+        renderView.continuousSubtitleRedrawProvider = { [weak self] in
+            guard let engine = self?.engine else { return false }
+            return engine.selectedSubtitleStreamIndex >= 0 || engine.externalSubtitleName != nil
+        }
         renderView.frameProvider = { [weak self] in self?.engine.nextFrameForDisplay() }
         renderView.captureModeProvider = { [weak self] in self?.engine.isCaptureMode ?? false }
         // 字幕层：按**视频原始尺寸**渲染，之后与画面共用同一组 letterbox 顶点。
@@ -1060,13 +1064,20 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
            let key = note.userInfo?["key"] as? PlaybackSettings.Key,
            key.rawValue.hasPrefix("macrife.rife") || key.rawValue.hasPrefix("macrife.interpolation")
                 || [.hdrToneMapping, .deinterlaceMode, .captureLowLatencyMode, .fake60FPSOptimization,
-                    .captureColorRange, .captureColorMatrix].contains(key) { return }
+                    .captureColorRange, .captureColorMatrix, .captureTextStability].contains(key) { return }
         overlay.refreshFromSettings()
         // ② 那一节直接读设置，改完当场就要反映出来 —— 否则面板上还写着旧档位
         refreshStatsPanel()
 
         let s = PlaybackSettings.shared
         renderView.updatePreferredFPS(for: s.rifeRateMode, sourceFPS: engine.detail.video?.frameRate ?? 24)
+
+        if let key = note.userInfo?["key"] as? PlaybackSettings.Key,
+           key == .rifeRateMode, !engine.isCaptureMode, engine.url != nil {
+            // Drop the old file's prepared cadence without unloading the model.
+            engine.seek(to: engine.currentTime)
+            return
+        }
 
         // ---- 热切换：影响管线的设置就地重建，不再弹「下次重启生效」
         guard let key = note.userInfo?["key"] as? PlaybackSettings.Key,

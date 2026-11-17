@@ -1,0 +1,110 @@
+{
+  "status": "built_and_verified_with_hardware_throughput_limits",
+  "sample": {
+    "path": "/Users/teeate/Desktop/aespa - Whiplash.mp4",
+    "dimensions": [
+      4096,
+      2304
+    ],
+    "fps": 24,
+    "duration_seconds": 190.541667,
+    "audio": "AAC 48kHz stereo"
+  },
+  "requested_test_scope": [
+    "Apple VideoToolbox 1080p",
+    "CoreML RIFE 1080p",
+    "MetalFX 1080p"
+  ],
+  "default_file_buffer": {
+    "seconds": 2,
+    "frame_cache_memory_MB": 1024,
+    "memory_limits_actual_duration": true,
+    "model_and_working_queues_are_additional": true
+  },
+  "compute_policy": {
+    "coreml": "MLComputeUnits.all fixed; retired single-instance and restricted compute-unit overrides removed",
+    "instances": 2,
+    "decoder": "all active logical processors",
+    "system_models": "system-managed resource scheduling; not a guarantee of 100% simultaneous CPU/GPU/ANE occupancy"
+  },
+  "changes": [
+    "separate bounded file decoder/processing queue",
+    "completed-frame prebuffer with synchronized audio/video pause and refill",
+    "generation-safe seek flush",
+    "source-identity-preserving native model output cache without redundant source-size upscale",
+    "four consecutive pairs per CoreML worker for feature/conversion reuse",
+    "new-frame-only bounded GPU presentation with subtitle updates",
+    "fixed-target timeline excludes extra source frames",
+    "short-file/drain-aware buffering and EOF watchdog"
+  ],
+  "short_runs": {
+    "apple": {
+      "baseline_20s": {
+        "decoded": 176,
+        "presented": 216,
+        "dropped": 132,
+        "av_drift_seconds": 0.16
+      },
+      "buffered_30s": {
+        "decoded": 301,
+        "presented": 557,
+        "dropped": 0,
+        "av_drift_seconds": 0.027
+      }
+    },
+    "coreml": {
+      "baseline_20s": {
+        "decoded": 277,
+        "presented": 427,
+        "dropped": 71,
+        "av_drift_seconds": 0.839
+      },
+      "buffered_30s": {
+        "decoded": 300,
+        "presented": 522,
+        "dropped": 0,
+        "av_drift_seconds": 0.034
+      }
+    },
+    "metalfx": {
+      "baseline_20s": {
+        "decoded": 331,
+        "presented": 404,
+        "dropped": 255,
+        "av_drift_seconds": 1.075
+      },
+      "buffered_30s": {
+        "decoded": 670,
+        "presented": 1284,
+        "dropped": 0,
+        "av_drift_seconds": 0.009
+      }
+    }
+  },
+  "limitations": [
+    "Apple ~95–100ms per pair at1080p is below24pairs/s demand",
+    "MetalFX ~44ms per pair is close to but below24pairs/s demand",
+    "CoreML1080p dual-instance throughput below24pairs/s",
+    "No reduction of selected inference precision; refill pauses remain possible. Zero dropped frames does not mean sustained48FPS."
+  ],
+  "verification": {
+    "release": "BUILD SUCCEEDED",
+    "signature": "codesign --verify --deep --strict passed",
+    "diff": "git diff --check passed",
+    "pure_buffer_tests": "PASS: startup/refill/short-tail/4K and8K budgets/worker ordering/queue backpressure",
+    "settings_tests": "PASS: independent profiles and buffer reset defaults",
+    "capture_regressions": 18,
+    "apple_models": "PASS: actual midpoint motion, original identity, native-size output lifetime, capture/session isolation",
+    "runtime_seek_pause": "45s seek succeeded, pause/resume PASS (presented81→377, clock44.71→50.87)",
+    "runtime_short_file": "EOF seek and replay PASS (presented24→46)",
+    "fixed60_and_all_units": "12 source frames→29 presented, no drops; x2 CoreML instances despite retired CPU-only/single-instance environment values",
+    "ui": "normal app launched without test overrides; video buffer duration and memory options visually verified"
+  },
+  "ab_comparisons_not_selected": [
+    "CoreML single-instance",
+    "CoreML split compute units",
+    "Apple system completion submission",
+    "alternate scale path"
+  ],
+  "measurement_scope": "Local short runs at matched source/inference resolution; not a sustained/full-film benchmark. Different run durations and warmup affect total counts. Final all-unit/EOF fixes separately verified."
+}

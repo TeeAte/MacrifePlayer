@@ -521,7 +521,9 @@ final class StatsPanelView: NSView {
                     lines.append("主机30模式  手动 · 60FPS采集 / 隔帧取样 / AI目标60FPS")
                 }
             }
-            if d.container.formatName.contains("采集卡"), !stats.rifeActive {
+            if stats.isFileBuffering {
+                lines.append("状态  正在预计算并填充视频缓存 · 目标 \(targetText)")
+            } else if d.container.formatName.contains("采集卡"), !stats.rifeActive {
                 lines.append("状态  输入已达目标帧率 · AI 按需补帧")
             } else if s.interpolationBackend != .rifeCoreML, stats.rifeInterpolatedFrames == 0 {
                 lines.append("状态  后端尚未产生插帧 · " + stats.rifeStatusText)

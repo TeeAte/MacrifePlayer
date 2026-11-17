@@ -69,6 +69,27 @@ enum AppleInterpolationSmokeTests {
         precondition(engine.snapshot.frames == 0)
         try testConsole30Capture(engine)
         try testIndependentSessions()
+        try testBufferedFileOutput()
+    }
+
+    private static func testBufferedFileOutput() throws {
+        let file = AppleLowLatencyInterpolator()
+        let a = makeConsoleBuffer(index: 0), b = makeConsoleBuffer(index: 1)
+        precondition(file.interpolate(DecodedVideoFrame(pixelBuffer: a, pts: 0),
+            sourceFPS: 24, targetFPS: 48, maxInferenceHeight: 720, restoreSourceSize: false)!.count == 1)
+        let result = file.interpolate(DecodedVideoFrame(pixelBuffer: b, pts: 1.0/24),
+            sourceFPS: 24, targetFPS: 48, maxInferenceHeight: 720, restoreSourceSize: false)!
+        precondition(result.count == 2 && result[0].isInterpolated && result[1].pixelBuffer === b)
+        precondition(CVPixelBufferGetWidth(result[0].pixelBuffer) == 1280 && CVPixelBufferGetHeight(result[0].pixelBuffer) == 720,
+                     "Cache actual model pixels, then let the renderer scale once")
+        precondition(abs(result[0].pts - 1.0/48) < 0.00001)
+        file.reset()
+        CVPixelBufferLockBaseAddress(result[0].pixelBuffer, .readOnly)
+        let bytes = CVPixelBufferGetBaseAddressOfPlane(result[0].pixelBuffer, 0)!.assumingMemoryBound(to: UInt8.self)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(result[0].pixelBuffer, 0)
+        precondition(bytes[300 * stride + 500] > bytes[50 * stride + 50], "A queued generated frame must survive session reset")
+        CVPixelBufferUnlockBaseAddress(result[0].pixelBuffer, .readOnly)
+        print("PASS: buffered file native-size AI output, 4:2:0 lifetime, PTS and unchanged original frame")
     }
 
     private static func testIndependentSessions() throws {

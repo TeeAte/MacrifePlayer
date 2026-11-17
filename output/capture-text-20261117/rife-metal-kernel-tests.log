@@ -1,0 +1,4 @@
+Fused source 191 107 max 0.001953125 MAE 6.328473942978727e-05
+Fused source 1920 1080 max 0.0014648438 MAE 6.645748974303159e-05
+1080p GPU synthesis: reference 1.342ms, fused 0.776ms; 43.5MB scratch removed per engine
+PASS: fused warp/blend equivalence, clamped borders, 601/709/2020 full/video-range color roundtrips

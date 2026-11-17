@@ -1,0 +1,10 @@
+2026-11-17 11:32:29.720 replay[41794:5386868] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-17 11:32:29.908 replay[41794:5386868] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-17 11:32:30.126 replay[41794:5386868] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+Detected real-game regions 12
+Timed buffered-input replay 60→120 (model stage only): p50 14.154ms p95 18.532ms max 26.820ms; skipped 0 input slots including startup
+Real quest static-stroke MAE 42.933 → 0.244 /255 (41700 samples)
+Real controls static-stroke MAE 34.545 → 0.645 /255 (16490 samples)
+Real food static-stroke MAE 37.465 → 2.979 /255 (23301 samples)
+Real clock static-stroke MAE 27.139 → 1.134 /255 (2142 samples)
+Apple720 real replay model: baseline mean 8.420ms p95 11.637ms; text-stable mean 10.539ms p95 12.645ms

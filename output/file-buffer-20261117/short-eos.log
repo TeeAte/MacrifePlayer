@@ -1,0 +1,145 @@
+2026-11-17 10:16:48.307 Macrife Player[19793:5264196] [ModelPackageManager] 缓存模型包已就绪: /Users/teeate/Library/Application Support/MacrifePlayer/Models
+[L10n] 语言=zh-Hans 已登记=92 缺失=0
+[PlaybackEngine] 字幕：这个文件没有字幕轨
+[PlaybackEngine] 视频解码器已建立: h264 (硬解 VideoToolbox) [MTS/隔行提示: false, 时间轴重建: false]
+[PlaybackEngine] 已打开 short-no-audio.mp4 — mov,mp4,m4a,3gp,3g2,mj2 · 00:00 · h264 1920x1080 @24.000 fps
+[PlaybackEngine] 状态变迁: opening -> playing
+[PlaybackEngine] demux: 累计读包 0 | 队列 v=0 a=0 | 推送超时 0 | EOF=false
+[PlaybackEngine] demux: av_read_frame 返回文件尾（累计读包 12）
+[PlaybackEngine] 保活：已持有电源断言（MacrifePlayer 播放中）
+2026-11-17 10:16:48.690 Macrife Player[19793:5264196] [AppleInterpolation] 会话就绪: 1920x1080 → 1920x1080（原帧保留）
+[PlaybackEngine] t=0.19 | 帧队列 1(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 -1.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.19 | 帧队列 3(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 -1.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.19 | 帧队列 7(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 -1.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.19 | 帧队列 11(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 -1.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | playing
+[PlaybackEngine] video: 已冲刷解码器，尾帧 8 张
+[PlaybackEngine] t=0.19 | 帧队列 17(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 -1.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.19 | 帧队列 21(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 -1.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：23/120帧，恢复同步播放
+[PlaybackEngine] 首帧上屏 pts=0.000s (音视频时钟基准已绝对对齐)
+[PlaybackEngine] t=0.11 | 帧队列 16(待显示 0.12) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.10 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | playing
+[PlaybackEngine] t=0.31 | 帧队列 6(待显示 0.33) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.31 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | playing
+[PlaybackEngine] checkEndOfStream 命中：eof=true 视频排空=true 音频排空=false 帧队列=0 在途=0 输入=0
+[PlaybackEngine] 播放结束，末帧 0.458s / 时长 0.500s
+[PlaybackEngine] 状态变迁: playing -> ended
+[PlaybackEngine] 保活：已释放电源断言
+[PlaybackEngine] [EOS自检] A 已到片尾（已解码 12 帧），静置 2s
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.51 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] 状态变迁: ended -> paused
+[PlaybackEngine] 结束态拖动进度条 → 0.15s（已复活为暂停态）
+[PlaybackEngine] [EOS自检] B 结束态拖到 0.15s，等 3s 看跟不跟得到
+[PlaybackEngine] t=0.15 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 否 冲刷 v/a=是/否 | paused
+[PlaybackEngine] seek: 0.150s → rc=0 · avformat_seek_file(video) → 0
+[PlaybackEngine] seek: 目标 0.150s，锚点=0，scheduledAudioEnd=0.000，generation=3
+[PlaybackEngine] seek 完成: 足迹 234 MB，重排待发 0，在途 0
+[PlaybackEngine] demux: 累计读包 12 | 队列 v=0 a=0 | 推送超时 0 | EOF=false
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.000s (raw 0)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.042s (raw 512)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.083s (raw 1024)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.125s (raw 1536)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.167s (raw 2048)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.208s (raw 2560)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.250s (raw 3072)
+[PlaybackEngine] demux[seek后]: 视频 包 pts=0.292s (raw 3584)
+2026-11-17 10:16:52.675 Macrife Player[19793:5264196] [AppleInterpolation] 会话就绪: 1920x1080 → 1920x1080（原帧保留）
+[PlaybackEngine] 首帧上屏 pts=0.000s (音视频时钟基准已绝对对齐)
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 1(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 5(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 11(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | paused
+[PlaybackEngine] video: 已冲刷解码器，尾帧 8 张
+[PlaybackEngine] t=0.00 | 帧队列 15(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 19(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=否/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | paused
+[PlaybackEngine] [EOS自检] 拖动结果：PASS — 目标 0.15s，实际 0.00s，状态 paused
+[PlaybackEngine] 状态变迁: paused -> playing
+[PlaybackEngine] 保活：已持有电源断言（MacrifePlayer 播放中）
+[PlaybackEngine] [EOS自检] C 已调用 play()，等 4s 看是否真的从头重播
+[PlaybackEngine] t=0.00 | 帧队列 21(待显示 0.02) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.00 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | playing
+[PlaybackEngine] 视频缓存就绪：22/120帧，恢复同步播放
+[PlaybackEngine] t=0.20 | 帧队列 12(待显示 0.21) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.19 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | playing
+[PlaybackEngine] t=0.40 | 帧队列 2(待显示 0.42) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.40 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | playing
+[PlaybackEngine] checkEndOfStream 命中：eof=true 视频排空=true 音频排空=false 帧队列=0 在途=0 输入=0
+[PlaybackEngine] 播放结束，末帧 0.458s / 时长 0.500s
+[PlaybackEngine] 状态变迁: playing -> ended
+[PlaybackEngine] 保活：已释放电源断言
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] [EOS自检] 重播结果：FAIL — 已解码 24 → 24，时钟 0.60s / 全长 0.50s，状态 ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+
+===== 性能监看（MP_DUMP_STATS）=====
+① 源视频参数
+short-no-audio.mp4  ·  QuickTime / MOV
+00:00  ·  总码率 4.65 Mb/s  ·  0.3 MB  ·  流 1（V1/A0/S0）
+视频  h264 Constrained Baseline L4.0  1920x1080  24 fps
+像素 yuv420p  ·  码率 4.63 Mb/s  ·  色彩 bt709/bt709/bt709/tv
+音频  无
+② 补帧后（输出）
+补帧  48 fps (Apple)  ·  目标 48 fps
+模型  Apple · 原帧保持源画质
+推理预算  1080p · 系统管理（不公开 FP16 / FP32 控制）
+处理  Apple 1920x1080 补帧 → 1920x1080 · 处理均耗 99.1 ms · 系统真实中间帧 · 缓存 0/120帧 · 回填0次
+输出  1920x1080  （已插帧 11 帧）
+增强  MetalFX 关闭  ·  Anime4K 关闭
+解码  硬解（VideoToolbox · h264）
+状态  ✅ Apple AI 补帧活跃运行中 · 输出 48 fps
+③ 性能参数
+渲染    0.0 fps    解码    0.0 fps
+帧    已解码 24  已上屏 46  丢帧 0
+队列  视频包 0/200  音频包 1/128  帧 0/120
+音画  时钟 0.60s  末帧 0.46s  偏差 +0.142s  ·  墙钟
+资源  CPU 2.8%  内存 RSS 374 / 足迹 389 / 压缩 0 MB  ·  GPU Apple M1 Pro
+状态  播放结束
+
+  panelVisible: true
+
+---- 字幕层 ----
+引擎    无字幕
+已上传  （尚未绘制过字幕层）
+主动     0.601s · 没有渲染器，取不到位图
+
+===== 结束 =====
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] t=0.60 | 帧队列 0(待显示 -1.00) | 视频包 0 | 音频包 1 | 音频排到 0.00 | 末帧 0.46 | 音频输出 无 | EOF 是 冲刷 v/a=是/否 | ended
+[PlaybackEngine] 状态变迁: ended -> idle

@@ -1,0 +1,110 @@
+{
+  "date": "2026-11-17",
+  "scope": "Capture-only stationary text stabilization, recent-cost scheduling and shared CoreML GPU synthesis/color fixes",
+  "hardware_capture_connected_or_started": false,
+  "build": {
+    "configuration": "Release arm64",
+    "status": "passed",
+    "binary_sha256": "f2ecea5d41285a6dba9401c52090c57fb0c191018d52bfc4cb5274f90782d3b3",
+    "codesign_deep_strict": "passed"
+  },
+  "compute": {
+    "coreml_compute_units": "all",
+    "coreml_instances": 2,
+    "note": "System schedules actual CPU/GPU/ANE utilization; no forced 100% claim"
+  },
+  "capture_text": {
+    "default_enabled": true,
+    "formats": [
+      "NV12 8-bit video range",
+      "NV12 8-bit full range",
+      "YUVS 8-bit packed 4:2:2"
+    ],
+    "detection": "Asynchronous geometric text rectangles, at most once per second, no OCR",
+    "preserves": "Original source frames, generated pixels outside text regions and actual interpolated motion",
+    "native_gpu_batch": "Apple and MetalFX append to existing GPU command, no new frame queue",
+    "other_backends": "CoreML and RifeMetal apply bounded per-worker GPU scratch"
+  },
+  "tests": {
+    "capture_text": "passed; actual Apple576 and MetalFX, static colored strokes, source identity, outside-ROI exact pixels, genuine midpoint motion, moving-text bypass",
+    "source_blend_kernel": "passed; boundary/non-integer scaling/FP16 equivalence and 601/709/2020 full/video color roundtrips",
+    "capture_latency": "19 cases passed",
+    "settings": "passed; video/capture reset isolation",
+    "apple_sessions": "passed; independent capture and file sessions",
+    "rifemetal_detail": "passed; genuine midframe and original identity",
+    "file_buffers": "passed",
+    "yuvs_gpu_conversion": "passed; every Y/UV byte at 1080p/1440p/2160p plus padding/range/reset checks",
+    "actual_final_app_coreml_smoke": {
+      "input": "0.5 second 1080p24 local no-audio fixture",
+      "inference_canvas": "1920x1088",
+      "model_instances_ready": 2,
+      "decoded": 12,
+      "presented": 29,
+      "dropped": 0,
+      "completed": true
+    },
+    "ui": "Capture settings panel visibly shows checked stationary-text control; normal app relaunched without diagnostic arguments"
+  },
+  "real_game_replay": {
+    "input": "16 previously recorded 1920x1080 NV12 frames; no live UVC source",
+    "detected_regions": 12,
+    "metric": "Stable bright stroke luma absolute error vs source-pair mean, code values 0-255; not full-frame perceptual ground truth",
+    "quest_mae": [
+      42.933,
+      0.244
+    ],
+    "controls_mae": [
+      34.545,
+      0.645
+    ],
+    "food_mae": [
+      37.465,
+      2.979
+    ],
+    "clock_mae": [
+      27.139,
+      1.134
+    ]
+  },
+  "performance_offline_only": {
+    "one_glyph_roi_gpu_mean_ms": 0.155,
+    "one_glyph_roi_encode_wait_p95_ms": 0.467,
+    "reference_vs_fused_1080_gpu_ms": [
+      1.342,
+      0.776
+    ],
+    "scratch_reduction_per_engine_mib": 43.5,
+    "burst_apple720_pair_mean_ms_baseline_and_stabilized": [
+      8.42,
+      10.539
+    ],
+    "timed_replay_60_to_120_model_only": {
+      "duration_seconds": 3,
+      "p50_ms": 14.154,
+      "p95_ms": 18.532,
+      "max_ms": 26.82,
+      "skipped_input_slots": 0
+    }
+  },
+  "limitations": [
+    "No current capture device, USB-to-display latency or long-run gameplay verification",
+    "Timed replay P95 exceeds 16.7ms, so no guaranteed sustained 120 FPS",
+    "Text detection may miss fonts; unsupported formats retain model output",
+    "NV12 midframe 4:2:0 chroma can differ from YUVS source 4:2:2 for tiny colored strokes",
+    "Low-resolution inference can still soften non-text regions or cause occlusion artifacts"
+  ],
+  "logs": [
+    "release-build.log",
+    "capture-text-tests.log",
+    "rife-metal-kernel-tests.log",
+    "apple-interpolation-regression.log",
+    "rifemetal-detail-regression.log",
+    "capture-latency-tests.log",
+    "interpolation-settings-tests.log",
+    "file-buffer-tests.log",
+    "yuvs-gpu-tests.log",
+    "coreml-app-smoke.log",
+    "real-game-replay-final.log",
+    "timed-model-replay.log"
+  ]
+}

@@ -58,6 +58,7 @@ struct PlaybackCounters {
     var interpolationSourceFPS = 0.0
     var interpolationTargetFPS = 0.0
     var rifeStatusText = "待命"
+    var isFileBuffering = false
     /// MetalFX 空间超分辨率
     var metalFXActive = false
     var metalFXStatusText = "MetalFX 关闭"
@@ -101,6 +102,7 @@ struct PlaybackRuntimeStats {
     var interpolationSourceFPS = 0.0
     var interpolationTargetFPS = 0.0
     var rifeStatusText = "待命"
+    var isFileBuffering = false
     var metalFXActive = false
     var metalFXStatusText = "MetalFX 关闭"
     var anime4kActive = false
@@ -164,6 +166,7 @@ final class StatsSampler {
         out.interpolationSourceFPS = counters.interpolationSourceFPS
         out.interpolationTargetFPS = counters.interpolationTargetFPS
         out.rifeStatusText = counters.rifeStatusText
+        out.isFileBuffering = counters.isFileBuffering
         out.metalFXActive = counters.metalFXActive
         out.metalFXStatusText = counters.metalFXStatusText
         out.anime4kActive = counters.anime4kActive

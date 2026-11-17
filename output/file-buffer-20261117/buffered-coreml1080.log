@@ -1,0 +1,297 @@
+[L10n] 语言=zh-Hans 已登记=92 缺失=0
+2026-11-17 09:59:01.132 Macrife Player[16214:5232486] [ModelPackageManager] 缓存模型包已就绪: /Users/teeate/Library/Application Support/MacrifePlayer/Models
+[PlaybackEngine] 字幕：这个文件没有字幕轨
+[PlaybackEngine] 视频解码器已建立: h264 (硬解 VideoToolbox) [MTS/隔行提示: false, 时间轴重建: false]
+[PlaybackEngine] 音频输出已启动: 48000.0Hz / 2ch
+[PlaybackEngine] 已打开 buffered-coreml-4k24.mp4 — mov,mp4,m4a,3gp,3g2,mj2 · 03:10 · h264 4096x2304 @24.000 fps · aac 48000 Hz / 2 ch
+[PlaybackEngine] 状态变迁: opening -> playing
+[PlaybackEngine] demux: 累计读包 0 | 队列 v=0 a=0 | 推送超时 0 | EOF=false
+[PlaybackEngine] audio: 锚点=0.000s（本块 pts=0.000, 时长 0.021）
+[PlaybackEngine] 保活：已持有电源断言（MacrifePlayer 播放中）
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 80 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:01.982 Macrife Player[16214:5232531] [CoreMLRIFE] Engine init: rife_426_fp16_1080p_blocks 模型 1920x1088, 源 4096x2304
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 75 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:02.056 Macrife Player[16214:5232531] [CoreMLRIFE] Engine init: rife_426_fp16_1080p_blocks 模型 1920x1088, 源 4096x2304
+2026-11-17 09:59:02.066 Macrife Player[16214:5232531] [CoreMLRIFE] 真模型引擎就绪 x2: rife_426_fp16_1080p_blocks (4096x2304 源 BT.709)
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 59 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.917s（排到 0.917 / 当前 0.000 / 队列 128 包）
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 0(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 2(待显示 -1.00) | 视频包 52 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 2(待显示 -1.00) | 视频包 52 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 4(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 6(待显示 -1.00) | 视频包 50 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 16(待显示 -1.00) | 视频包 45 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 18(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 20(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 22(待显示 -1.00) | 视频包 42 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 32(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 34(待显示 -1.00) | 视频包 36 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 36(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 38(待显示 -1.00) | 视频包 34 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 48(待显示 -1.00) | 视频包 32 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 50(待显示 -1.00) | 视频包 32 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.00 | 帧队列 52(待显示 -1.00) | 视频包 32 | 音频包 128 | 音频排到 0.92 | 末帧 -1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：54/56帧，恢复同步播放
+[PlaybackEngine] 首帧上屏 pts=0.000s (音视频时钟基准已绝对对齐)
+[PlaybackEngine] demux: 累计读包 262 | 队列 v=32 a=128 | 推送超时 89 | EOF=false
+[PlaybackEngine] t=0.02 | 帧队列 52(待显示 -1.00) | 视频包 32 | 音频包 128 | 音频排到 0.94 | 末帧 0.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.22 | 帧队列 52(待显示 -1.00) | 视频包 40 | 音频包 128 | 音频排到 1.13 | 末帧 0.23 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.43 | 帧队列 45(待显示 -1.00) | 视频包 33 | 音频包 128 | 音频排到 1.32 | 末帧 0.42 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 296 | 队列 v=30 a=128 | 推送超时 89 | EOF=false
+[PlaybackEngine] t=0.63 | 帧队列 35(待显示 -1.00) | 视频包 40 | 音频包 128 | 音频排到 1.51 | 末帧 0.62 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=0.82 | 帧队列 27(待显示 0.83) | 视频包 39 | 音频包 128 | 音频排到 1.71 | 末帧 0.81 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.02 | 帧队列 21(待显示 -1.00) | 视频包 48 | 音频包 128 | 音频排到 1.94 | 末帧 1.00 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 340 | 队列 v=48 a=128 | 推送超时 89 | EOF=false
+2026-11-17 09:59:07.555 Macrife Player[16214:5232533] [RIFE60] 足迹 4330 MB | 领先量 102 输入8 在途10 帧队列27 | 重排待发 0 | 直通 0 插帧 40 真推理 50 | 模式 x2 源fps 24.0 分支 定比 | 解码包 47 | E0:取41/新31/复用10/转换46 E1:取41/新33/复用8/转换48
+[PlaybackEngine] t=1.23 | 帧队列 21(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 2.11 | 末帧 1.21 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.43 | 帧队列 12(待显示 1.44) | 视频包 52 | 音频包 128 | 音频排到 2.33 | 末帧 1.42 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 374 | 队列 v=52 a=128 | 推送超时 89 | EOF=false
+[PlaybackEngine] t=1.63 | 帧队列 5(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 2.52 | 末帧 1.62 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第1次）
+[PlaybackEngine] t=1.75 | 帧队列 2(待显示 -1.00) | 视频包 50 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 12(待显示 -1.00) | 视频包 49 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 12(待显示 -1.00) | 视频包 45 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 14(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 16(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.914s（排到 2.667 / 当前 1.753 / 队列 128 包）
+[PlaybackEngine] t=1.75 | 帧队列 18(待显示 -1.00) | 视频包 42 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 28(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 30(待显示 -1.00) | 视频包 36 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:09.697 Macrife Player[16214:5232580] [CoreMLRIFE] 链路均耗 239.8 ms (prep 0.0 + infer 195.7 [block 195.7] + metal 43.0) → 吞吐上限 4.2 fps
+2026-11-17 09:59:09.746 Macrife Player[16214:5232576] [CoreMLRIFE] 链路均耗 240.1 ms (prep 0.0 + infer 195.4 [block 195.4] + metal 43.8) → 吞吐上限 4.2 fps
+[PlaybackEngine] t=1.75 | 帧队列 32(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 34(待显示 -1.00) | 视频包 34 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 44(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 46(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 46(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 48(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=1.75 | 帧队列 50(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 2.67 | 末帧 1.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：56/56帧，恢复同步播放
+[PlaybackEngine] demux: 累计读包 384 | 队列 v=30 a=128 | 推送超时 144 | EOF=false
+[PlaybackEngine] t=1.89 | 帧队列 52(待显示 -1.00) | 视频包 40 | 音频包 128 | 音频排到 2.79 | 末帧 1.90 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=2.09 | 帧队列 45(待显示 -1.00) | 视频包 34 | 音频包 128 | 音频排到 2.99 | 末帧 2.08 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=2.29 | 帧队列 38(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 3.18 | 末帧 2.27 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 428 | 队列 v=39 a=128 | 推送超时 144 | EOF=false
+[PlaybackEngine] t=2.48 | 帧队列 29(待显示 2.50) | 视频包 38 | 音频包 128 | 音频排到 3.39 | 末帧 2.48 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=2.69 | 帧队列 30(待显示 -1.00) | 视频包 46 | 音频包 128 | 音频排到 3.58 | 末帧 2.69 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 462 | 队列 v=43 a=128 | 推送超时 144 | EOF=false
+[PlaybackEngine] t=2.89 | 帧队列 20(待显示 2.90) | 视频包 43 | 音频包 128 | 音频排到 3.78 | 末帧 2.88 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.09 | 帧队列 13(待显示 -1.00) | 视频包 52 | 音频包 128 | 音频排到 3.99 | 末帧 3.08 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.29 | 帧队列 5(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 4.18 | 末帧 3.29 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 496 | 队列 v=51 a=128 | 推送超时 144 | EOF=false
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第2次）
+[PlaybackEngine] t=3.44 | 帧队列 2(待显示 -1.00) | 视频包 50 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:13.033 Macrife Player[16214:5232533] [RIFE60] 足迹 4116 MB | 领先量 92 输入7 在途12 帧队列12 | 重排待发 0 | 直通 0 插帧 88 真推理 100 | 模式 x2 源fps 24.0 分支 定比 | 解码包 49 | E0:取89/新42/复用47/转换100 E1:取89/新44/复用45/转换102
+[PlaybackEngine] t=3.44 | 帧队列 12(待显示 -1.00) | 视频包 47 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 12(待显示 -1.00) | 视频包 45 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 14(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 16(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.915s（排到 4.352 / 当前 3.437 / 队列 128 包）
+[PlaybackEngine] t=3.44 | 帧队列 18(待显示 -1.00) | 视频包 42 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 28(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 30(待显示 -1.00) | 视频包 36 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 32(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 34(待显示 -1.00) | 视频包 34 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 34(待显示 -1.00) | 视频包 34 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 44(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 46(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 48(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 50(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.44 | 帧队列 50(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 4.35 | 末帧 3.40 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：56/56帧，恢复同步播放
+[PlaybackEngine] demux: 累计读包 503 | 队列 v=30 a=128 | 推送超时 201 | EOF=false
+[PlaybackEngine] t=3.58 | 帧队列 51(待显示 3.58) | 视频包 40 | 音频包 128 | 音频排到 4.48 | 末帧 3.56 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=3.77 | 帧队列 44(待显示 -1.00) | 视频包 33 | 音频包 128 | 音频排到 4.67 | 末帧 3.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 547 | 队列 v=39 a=128 | 推送超时 201 | EOF=false
+[PlaybackEngine] t=3.98 | 帧队列 36(待显示 3.98) | 视频包 39 | 音频包 128 | 音频排到 4.89 | 末帧 3.96 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=4.18 | 帧队列 29(待显示 -1.00) | 视频包 38 | 音频包 128 | 音频排到 5.08 | 末帧 4.17 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:16.783 Macrife Player[16214:5232580] [CoreMLRIFE] 链路均耗 230.5 ms (prep 0.0 + infer 187.3 [block 187.4] + metal 42.2) → 吞吐上限 4.3 fps
+2026-11-17 09:59:16.808 Macrife Player[16214:5232576] [CoreMLRIFE] 链路均耗 230.0 ms (prep 0.0 + infer 186.0 [block 186.1] + metal 42.9) → 吞吐上限 4.3 fps
+[PlaybackEngine] t=4.38 | 帧队列 29(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 5.27 | 末帧 4.38 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 581 | 队列 v=43 a=128 | 推送超时 201 | EOF=false
+[PlaybackEngine] t=4.57 | 帧队列 21(待显示 4.58) | 视频包 42 | 音频包 128 | 音频排到 5.48 | 末帧 4.56 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=4.77 | 帧队列 12(待显示 -1.00) | 视频包 52 | 音频包 128 | 音频排到 5.67 | 末帧 4.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=4.98 | 帧队列 4(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 5.87 | 末帧 4.98 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 616 | 队列 v=50 a=128 | 推送超时 201 | EOF=false
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第3次）
+[PlaybackEngine] t=5.13 | 帧队列 0(待显示 -1.00) | 视频包 60 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 10(待显示 -1.00) | 视频包 55 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 12(待显示 -1.00) | 视频包 54 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 14(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 16(待显示 -1.00) | 视频包 52 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.906s（排到 6.037 / 当前 5.132 / 队列 128 包）
+[PlaybackEngine] t=5.13 | 帧队列 26(待显示 -1.00) | 视频包 47 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 28(待显示 -1.00) | 视频包 46 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:18.974 Macrife Player[16214:5232533] [RIFE60] 足迹 4192 MB | 领先量 106 输入8 在途12 帧队列28 | 重排待发 2 | 直通 0 插帧 140 真推理 150 | 模式 x2 源fps 24.0 分支 定比 | 解码包 46 | E0:取140/新54/复用86/转换159 E1:取141/新54/复用87/转换160
+[PlaybackEngine] t=5.13 | 帧队列 30(待显示 -1.00) | 视频包 45 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 32(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 42(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 44(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 46(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.13 | 帧队列 48(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：56/56帧，恢复同步播放
+[PlaybackEngine] t=5.11 | 帧队列 56(待显示 5.12) | 视频包 39 | 音频包 128 | 音频排到 6.04 | 末帧 5.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 632 | 队列 v=39 a=128 | 推送超时 251 | EOF=false
+[PlaybackEngine] t=5.31 | 帧队列 48(待显示 5.31) | 视频包 38 | 音频包 128 | 音频排到 6.19 | 末帧 5.29 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.50 | 帧队列 41(待显示 -1.00) | 视频包 30 | 音频包 128 | 音频排到 6.42 | 末帧 5.50 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 667 | 队列 v=39 a=128 | 推送超时 251 | EOF=false
+[PlaybackEngine] t=5.71 | 帧队列 33(待显示 5.71) | 视频包 39 | 音频包 128 | 音频排到 6.61 | 末帧 5.69 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=5.91 | 帧队列 26(待显示 -1.00) | 视频包 38 | 音频包 128 | 音频排到 6.81 | 末帧 5.90 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.11 | 帧队列 26(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 7.00 | 末帧 6.10 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 701 | 队列 v=43 a=128 | 推送超时 251 | EOF=false
+[PlaybackEngine] t=6.30 | 帧队列 16(待显示 6.31) | 视频包 43 | 音频包 128 | 音频排到 7.21 | 末帧 6.29 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.50 | 帧队列 11(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 7.40 | 末帧 6.50 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.71 | 帧队列 1(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 7.59 | 末帧 6.71 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 735 | 队列 v=50 a=128 | 推送超时 251 | EOF=false
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第4次）
+[PlaybackEngine] t=6.79 | 帧队列 0(待显示 -1.00) | 视频包 60 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 10(待显示 -1.00) | 视频包 55 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 12(待显示 -1.00) | 视频包 54 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 14(待显示 -1.00) | 视频包 53 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 16(待显示 -1.00) | 视频包 52 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.909s（排到 7.701 / 当前 6.792 / 队列 128 包）
+[PlaybackEngine] t=6.79 | 帧队列 26(待显示 -1.00) | 视频包 47 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 28(待显示 -1.00) | 视频包 46 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:23.316 Macrife Player[16214:5232580] [CoreMLRIFE] 链路均耗 220.9 ms (prep 0.0 + infer 179.3 [block 179.3] + metal 40.7) → 吞吐上限 4.5 fps
+2026-11-17 09:59:23.388 Macrife Player[16214:5232576] [CoreMLRIFE] 链路均耗 221.4 ms (prep 0.0 + infer 178.7 [block 178.8] + metal 41.6) → 吞吐上限 4.5 fps
+[PlaybackEngine] t=6.79 | 帧队列 30(待显示 -1.00) | 视频包 45 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 32(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 41(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 43(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 43(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 45(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=6.79 | 帧队列 47(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 7.70 | 末帧 6.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:24.693 Macrife Player[16214:5232533] [RIFE60] 足迹 4571 MB | 领先量 116 输入5 在途10 帧队列51 | 重排待发 5 | 直通 0 插帧 191 真推理 192 | 模式 x2 源fps 24.0 分支 定比 | 解码包 39 | E0:取192/新62/复用130/转换217 E1:取194/新64/复用130/转换219
+[PlaybackEngine] 视频缓存就绪：56/56帧，恢复同步播放
+[PlaybackEngine] demux: 累计读包 750 | 队列 v=39 a=128 | 推送超时 302 | EOF=false
+[PlaybackEngine] t=6.93 | 帧队列 49(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 7.81 | 末帧 6.94 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=7.13 | 帧队列 49(待显示 -1.00) | 视频包 32 | 音频包 128 | 音频排到 8.04 | 末帧 7.12 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 783 | 队列 v=33 a=128 | 推送超时 302 | EOF=false
+[PlaybackEngine] t=7.34 | 帧队列 41(待显示 -1.00) | 视频包 33 | 音频包 128 | 音频排到 8.23 | 末帧 7.33 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=7.53 | 帧队列 34(待显示 7.54) | 视频包 31 | 音频包 128 | 音频排到 8.43 | 末帧 7.50 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=7.73 | 帧队列 27(待显示 -1.00) | 视频包 40 | 音频包 128 | 音频排到 8.62 | 末帧 7.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 818 | 队列 v=40 a=128 | 推送超时 302 | EOF=false
+[PlaybackEngine] t=7.93 | 帧队列 27(待显示 -1.00) | 视频包 36 | 音频包 128 | 音频排到 8.83 | 末帧 7.94 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=8.13 | 帧队列 21(待显示 8.17) | 视频包 44 | 音频包 128 | 音频排到 9.02 | 末帧 8.12 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=8.34 | 帧队列 19(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 9.22 | 末帧 8.33 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 851 | 队列 v=43 a=128 | 推送超时 302 | EOF=false
+[PlaybackEngine] t=8.53 | 帧队列 11(待显示 8.54) | 视频包 52 | 音频包 128 | 音频排到 9.43 | 末帧 8.52 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=8.73 | 帧队列 12(待显示 -1.00) | 视频包 49 | 音频包 128 | 音频排到 9.64 | 末帧 8.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 885 | 队列 v=47 a=128 | 推送超时 302 | EOF=false
+[PlaybackEngine] t=8.93 | 帧队列 4(待显示 -1.00) | 视频包 56 | 音频包 128 | 音频排到 9.83 | 末帧 8.94 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第5次）
+[PlaybackEngine] t=9.04 | 帧队列 2(待显示 -1.00) | 视频包 55 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 4(待显示 -1.00) | 视频包 54 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 4(待显示 -1.00) | 视频包 54 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 13(待显示 -1.00) | 视频包 49 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 15(待显示 -1.00) | 视频包 48 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.918s（排到 9.963 / 当前 9.044 / 队列 128 包）
+[PlaybackEngine] t=9.04 | 帧队列 17(待显示 -1.00) | 视频包 47 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 19(待显示 -1.00) | 视频包 46 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 29(待显示 -1.00) | 视频包 41 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 31(待显示 -1.00) | 视频包 40 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 33(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 35(待显示 -1.00) | 视频包 38 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:29.209 Macrife Player[16214:5232533] [RIFE60] 足迹 4232 MB | 领先量 110 输入8 在途10 帧队列45 | 重排待发 0 | 直通 0 插帧 231 真推理 241 | 模式 x2 源fps 24.0 分支 定比 | 解码包 37 | E0:取238/新65/复用173/转换268 E1:取235/新65/复用170/转换266
+[PlaybackEngine] t=9.04 | 帧队列 45(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 47(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 49(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.04 | 帧队列 49(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:29.860 Macrife Player[16214:5232576] [CoreMLRIFE] 链路均耗 216.2 ms (prep 0.0 + infer 174.6 [block 174.6] + metal 40.6) → 吞吐上限 4.6 fps
+[PlaybackEngine] t=9.04 | 帧队列 51(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 9.96 | 末帧 9.02 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：56/56帧，恢复同步播放
+[PlaybackEngine] demux: 累计读包 906 | 队列 v=35 a=128 | 推送超时 361 | EOF=false
+[PlaybackEngine] t=9.16 | 帧队列 54(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 10.07 | 末帧 9.17 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:30.350 Macrife Player[16214:5232580] [CoreMLRIFE] 链路均耗 217.0 ms (prep 0.0 + infer 176.2 [block 176.2] + metal 39.9) → 吞吐上限 4.6 fps
+[PlaybackEngine] t=9.36 | 帧队列 47(待显示 9.38) | 视频包 41 | 音频包 128 | 音频排到 10.26 | 末帧 9.35 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.57 | 帧队列 40(待显示 -1.00) | 视频包 33 | 音频包 128 | 音频排到 10.45 | 末帧 9.56 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 940 | 队列 v=33 a=128 | 推送超时 361 | EOF=false
+[PlaybackEngine] t=9.76 | 帧队列 32(待显示 9.77) | 视频包 42 | 音频包 128 | 音频排到 10.67 | 末帧 9.75 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=9.96 | 帧队列 33(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 10.86 | 末帧 9.96 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 974 | 队列 v=36 a=128 | 推送超时 361 | EOF=false
+[PlaybackEngine] t=10.16 | 帧队列 25(待显示 -1.00) | 视频包 46 | 音频包 128 | 音频排到 11.05 | 末帧 10.17 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=10.37 | 帧队列 17(待显示 10.38) | 视频包 45 | 音频包 128 | 音频排到 11.26 | 末帧 10.35 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=10.57 | 帧队列 10(待显示 -1.00) | 视频包 54 | 音频包 128 | 音频排到 11.46 | 末帧 10.56 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 1017 | 队列 v=54 a=128 | 推送超时 361 | EOF=false
+[PlaybackEngine] t=10.76 | 帧队列 10(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 11.67 | 末帧 10.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=10.96 | 帧队列 1(待显示 -1.00) | 视频包 59 | 音频包 128 | 音频排到 11.86 | 末帧 10.96 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第6次）
+[PlaybackEngine] t=11.08 | 帧队列 0(待显示 -1.00) | 视频包 57 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 2(待显示 -1.00) | 视频包 56 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 12(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 14(待显示 -1.00) | 视频包 50 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 16(待显示 -1.00) | 视频包 49 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] audio: 限流阻塞中 —— 超前 0.913s（排到 11.989 / 当前 11.076 / 队列 128 包）
+[PlaybackEngine] t=11.08 | 帧队列 18(待显示 -1.00) | 视频包 48 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 28(待显示 -1.00) | 视频包 43 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 30(待显示 -1.00) | 视频包 42 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 32(待显示 -1.00) | 视频包 41 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 34(待显示 -1.00) | 视频包 40 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 42(待显示 -1.00) | 视频包 38 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:34.301 Macrife Player[16214:5232533] [RIFE60] 足迹 4316 MB | 领先量 112 输入7 在途12 帧队列44 | 重排待发 0 | 直通 0 插帧 278 真推理 290 | 模式 x2 源fps 24.0 分支 定比 | 解码包 37 | E0:取285/新69/复用216/转换324 E1:取282/新69/复用213/转换318
+[PlaybackEngine] t=11.08 | 帧队列 44(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 46(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 48(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.08 | 帧队列 50(待显示 -1.00) | 视频包 37 | 音频包 128 | 音频排到 11.99 | 末帧 11.04 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存就绪：56/56帧，恢复同步播放
+[PlaybackEngine] demux: 累计读包 1051 | 队列 v=37 a=128 | 推送超时 418 | EOF=false
+[PlaybackEngine] t=11.13 | 帧队列 56(待显示 11.15) | 视频包 37 | 音频包 128 | 音频排到 12.03 | 末帧 11.12 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.33 | 帧队列 49(待显示 -1.00) | 视频包 35 | 音频包 128 | 音频排到 12.22 | 末帧 11.33 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.53 | 帧队列 41(待显示 -1.00) | 视频包 36 | 音频包 128 | 音频排到 12.44 | 末帧 11.54 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 1084 | 队列 v=35 a=128 | 推送超时 418 | EOF=false
+[PlaybackEngine] t=11.73 | 帧队列 34(待显示 -1.00) | 视频包 34 | 音频包 128 | 音频排到 12.63 | 末帧 11.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=11.94 | 帧队列 24(待显示 -1.00) | 视频包 44 | 音频包 128 | 音频排到 12.84 | 末帧 11.94 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+
+===== 性能监看（MP_DUMP_STATS）=====
+① 源视频参数
+buffered-coreml-4k24.mp4  ·  QuickTime / MOV
+03:10  ·  总码率 50.85 Mb/s  ·  0 MB  ·  流 2（V1/A1/S0）
+视频  h264 Main L5.1  4096x2304  24 fps
+像素 yuv420p  ·  码率 50.34 Mb/s  ·  色彩 bt709/bt709/bt709/tv
+音频  aac LC  48000 Hz · 2 ch (stereo) · fltp
+音轨  English · aac (2ch) [默认]
+② 补帧后（输出）
+补帧  RIFE 2X (RIFE)  ·  目标 48 fps · 实测 45.2 FPS
+模型  RIFE 4.26 · 光流 1080p
+精度  FP16 模型（当前模型包）
+保护  转场保护 开 (30%)  ·  静帧跳过 开
+输出  4096x2304  （已插帧 294 帧）
+增强  MetalFX 关闭  ·  Anime4K 关闭
+解码  硬解（VideoToolbox · h264）
+状态  ✅ RIFE AI 补帧活跃运行中 · 输出 48 fps
+③ 性能参数
+渲染   45.2 fps    解码   17.7 fps
+帧    已解码 332  已上屏 568  丢帧 0
+队列  视频包 39/200  音频包 128/128  帧 30/56
+音画  时钟 12.03s  末帧 12.02s  偏差 +0.007s  ·  音频主时钟
+资源  CPU 0.0%  内存 RSS 1708 / 足迹 4379 / 压缩 293 MB  ·  GPU Apple M1 Pro
+状态  播放中
+
+  panelVisible: true
+
+---- 字幕层 ----
+引擎    无字幕
+已上传  （尚未绘制过字幕层）
+主动     12.028s · 没有渲染器，取不到位图
+
+===== 结束 =====
+[PlaybackEngine] demux: 累计读包 1119 | 队列 v=39 a=128 | 推送超时 418 | EOF=false
+[PlaybackEngine] t=12.13 | 帧队列 25(待显示 -1.00) | 视频包 39 | 音频包 128 | 音频排到 13.03 | 末帧 12.12 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=12.33 | 帧队列 17(待显示 -1.00) | 视频包 48 | 音频包 128 | 音频排到 13.23 | 末帧 12.33 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+2026-11-17 09:59:36.507 Macrife Player[16214:5232576] [CoreMLRIFE] 链路均耗 214.6 ms (prep 0.0 + infer 173.4 [block 173.4] + metal 40.2) → 吞吐上限 4.7 fps
+[PlaybackEngine] t=12.53 | 帧队列 9(待显示 -1.00) | 视频包 47 | 音频包 128 | 音频排到 13.42 | 末帧 12.54 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] demux: 累计读包 1163 | 队列 v=56 a=128 | 推送超时 418 | EOF=false
+[PlaybackEngine] t=12.74 | 帧队列 2(待显示 -1.00) | 视频包 56 | 音频包 128 | 音频排到 13.63 | 末帧 12.73 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] 视频缓存耗尽，暂停音画等待回填（第7次）
+2026-11-17 09:59:36.972 Macrife Player[16214:5232580] [CoreMLRIFE] 链路均耗 215.1 ms (prep 0.0 + infer 174.4 [block 174.4] + metal 39.8) → 吞吐上限 4.6 fps
+[PlaybackEngine] t=12.79 | 帧队列 10(待显示 -1.00) | 视频包 51 | 音频包 128 | 音频排到 13.70 | 末帧 12.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] t=12.79 | 帧队列 12(待显示 -1.00) | 视频包 50 | 音频包 128 | 音频排到 13.70 | 末帧 12.77 | 音频输出 有 | EOF 否 冲刷 v/a=否/否 | playing
+[PlaybackEngine] RIFE 出口线程退出: 关闭=true
+[PlaybackEngine] RIFE worker0 线程退出: 关闭=true
+[PlaybackEngine] RIFE worker1 线程退出: 关闭=true
+[PlaybackEngine] 状态变迁: playing -> idle
+[PlaybackEngine] 保活：已释放电源断言

@@ -249,7 +249,16 @@ final class PlaybackEngine {
     /// 不出来（v=0）、画面冻死、补帧看门狗连跳。128 包 ≈ 10.9 秒，与视频侧 200 帧
     /// （≈8.3 秒）基本配平，谁先满都能及时把解封装线程刹住，不会互相饿死。
     private let audioPacketQueue = BoundedQueue<PacketItem>(capacity: 128)
-    private let frameQueue = BoundedQueue<DecodedVideoFrame>(capacity: 48)
+    private let frameQueue = BoundedQueue<DecodedVideoFrame>(capacity: 240)
+    private enum FileFrameItem {
+        case frame(DecodedVideoFrame, generation: Int, fps: Double)
+        case end(generation: Int)
+    }
+    private let fileInputQueue = BoundedQueue<FileFrameItem>(capacity: 4)
+    private let fileProcessingQueue = DispatchQueue(label: "metalplayer.file.interpolation", qos: .userInitiated)
+    private let fileProcessingGate = PipelineGate()
+    // Protected by frameLock. Only the display thread changes the gate.
+    private var fileBuffer = FilePlaybackBufferState()
     private var lastPushedPTS: Double? = nil
     private let fileInterpolation = FrameInterpolationPipeline(inputKind: .videoFile)
     private let captureInterpolation = FrameInterpolationPipeline(inputKind: .captureCard)
@@ -357,7 +366,7 @@ final class PlaybackEngine {
         while !isStopping {
             let ahead = rifeInputQueue.count
                       + 2 * rifeReorder.inflight + frameQueue.count
-            if ahead <= Self.rifeAheadLimit { return }
+            if ahead <= fileBufferPolicy.capacity + 16 { return }
             if currentGeneration() != gen { return }
             stateLock.lock()
             let seekPending = (seekRequested != nil)
@@ -384,6 +393,54 @@ final class PlaybackEngine {
         return CaptureLatencyPolicy(isExtreme: mode == .extreme)
     }
 
+    private var fileBufferPolicy: FilePlaybackBufferPolicy {
+        let settings = fileInterpolation.settings
+        let bytesPerPixel = detail.video?.pixelFormat.contains("10") == true ? 3 : 2
+        return FilePlaybackBufferPolicy(targetFPS: settings.interpolationTargetFrameRate(source: interpolationSourceFPS),
+            seconds: settings.fileBufferSeconds, memoryMB: settings.fileBufferMemoryMB,
+            frameBytes: max(1, Int(videoSize.width) * Int(videoSize.height) * bytesPerPixel))
+    }
+
+    private var fileAudioMayStart: Bool {
+        guard !isCaptureMode, pipelineSettings.rifeRateMode != .off, videoDecoder != nil else { return true }
+        frameLock.lock(); defer { frameLock.unlock() }
+        return !fileBuffer.isBuffering
+    }
+
+    /// Runs on the display thread. Buffering freezes both clocks without seeking
+    /// or discarding completed AI frames; decoding/inference continue ahead.
+    private func updateFileBuffering() -> Bool {
+        guard !isCaptureMode, videoDecoder != nil, pipelineSettings.rifeRateMode != .off else { return true }
+        let policy = fileBufferPolicy
+        let drained = isVideoDrained && rifeInputQueue.isEmpty && rifeReorder.inflight == 0
+        let mediaTime = clock.currentTime()
+        frameLock.lock()
+        let available = frameQueue.count + (pendingFrame == nil ? 0 : 1)
+        let ranOut = available == 0 && loggedFirstFrame
+            && mediaTime >= lastPresentedPTS + 1 / max(1, policy.targetFPS)
+        let transition = fileBuffer.update(available: available, readyFrames: policy.readyFrames,
+                                          drained: drained, ranOut: ranOut)
+        let ready = !fileBuffer.isBuffering
+        let refills = fileBuffer.rebufferCount
+        if ready { audioPrebufferDone = true }
+        frameLock.unlock()
+        switch transition {
+        case .wait, .pause:
+            clock.pause()
+            audioOutput?.pauseForBuffering()
+            if transition == .pause { Self.log("视频缓存耗尽，暂停音画等待回填（第\(refills)次）") }
+        case .play:
+            if isWantPlaying {
+                clock.start()
+                anchorLock.lock(); let scheduled = audioBuffersScheduled; anchorLock.unlock()
+                if scheduled { audioOutput?.play() }
+                Self.log("视频缓存就绪：\(available)/\(policy.capacity)帧，恢复同步播放")
+            }
+        case .none: break
+        }
+        return ready
+    }
+
     private var interpolationSourceFPS: Double {
         isCaptureMode ? captureContentFPS : (videoDecoder?.frameRate ?? detail.video?.frameRate ?? 24)
     }
@@ -394,7 +451,7 @@ final class PlaybackEngine {
     }
 
     private var captureOutputCapacity: Int {
-        guard let policy = captureLatencyPolicy else { return 48 }
+        guard let policy = captureLatencyPolicy else { return fileBufferPolicy.capacity }
         let settings = pipelineSettings
         let target = settings.interpolationTargetFrameRate(source: captureContentFPS)
         guard settings.rifeRateMode != .off,
@@ -444,6 +501,8 @@ final class PlaybackEngine {
         videoPacketQueue.reopen()
         audioPacketQueue.reopen()
         frameQueue.reopen()
+        fileInputQueue.reopen()
+        fileProcessingGate.unfreeze()
         captureFrameQueue.reopen()
         rifeInputQueue.reopen()
         rifeJobQueues.forEach { $0.reopen() }
@@ -451,6 +510,7 @@ final class PlaybackEngine {
         videoGate.unfreeze()
         audioGate.unfreeze()
         frameLock.lock(); pendingFrame = nil; lastPresentedPTS = -1; loggedFirstFrame = false; audioPrebufferDone = false; frameLock.unlock()
+        frameLock.lock(); fileBuffer = FilePlaybackBufferState(); frameLock.unlock()
         demuxReadCount = 0; pushTimeouts = 0; lastDemuxTrace = 0; loggedEOF = false
         anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
         // 性能计数归零：换文件之后旧的计数没有意义，留着会算出跨文件的假 FPS。
@@ -566,7 +626,7 @@ final class PlaybackEngine {
         anchorLock.lock(); let scheduled = audioBuffersScheduled; anchorLock.unlock()
         let rifeActive = (pipelineSettings.rifeRateMode != .off)
         // 补帧模式下：必须等待首批插值帧预缓冲就绪才唤醒音频，彻底防止音频抢跑导致的画面追赶与疯狂丢帧
-        if scheduled && (!rifeActive || audioPrebufferDone) {
+        if scheduled && (!rifeActive || audioPrebufferDone) && fileAudioMayStart {
             if Self.pauseDiagEnabled {
                 Self.log("[play] 唤醒音频：scheduled=true rife=\(rifeActive) prebuffer=\(audioPrebufferDone)")
             }
@@ -709,6 +769,7 @@ final class PlaybackEngine {
     /// 计数在临界区外做，锁序永远只有单层的 frameLock 或单层的 statsLock。
     func nextFrameForDisplay() -> DecodedVideoFrame? {
         guard !isCaptureMode || isPlaying else { return nil }
+        if !isCaptureMode, isWantPlaying, !updateFileBuffering() { return nil }
         let now = clock.currentTime()
 
         var lateDropped = 0
@@ -893,6 +954,12 @@ final class PlaybackEngine {
         let shouldDrainAudio = (source?.hasAudio ?? false)
 
         threadGroup.enter()
+        fileProcessingQueue.async { [weak self] in
+            defer { self?.threadGroup.leave() }
+            self?.fileProcessingLoop()
+        }
+
+        threadGroup.enter()
         demuxQueue.async { [weak self] in
             defer { self?.threadGroup.leave() }
             self?.demuxLoop()
@@ -933,6 +1000,7 @@ final class PlaybackEngine {
         // 唤醒所有门闸；共享引擎缓存在线程退出后再重置。
         videoGate.cancel()
         audioGate.cancel()
+        fileProcessingGate.cancel()
 
         // 冲刷并关闭队列唤醒所有阻塞中的线程
         rifeReorder.discardPending()
@@ -943,6 +1011,8 @@ final class PlaybackEngine {
         audioPacketQueue.close()
         frameQueue.flush()
         frameQueue.close()
+        fileInputQueue.flush()
+        fileInputQueue.close()
         rifeInputQueue.flush()
         rifeInputQueue.close()
         rifeJobQueues.forEach {
@@ -1145,13 +1215,10 @@ final class PlaybackEngine {
                 if currentGeneration() != gen { break }
                 noteDecodedFrames(tail.count)
                 let floor = currentMinValidPTS
-                for f in tail where f.pts >= floor { enqueueFileFrame(f) }
+                for f in tail where f.pts >= floor { enqueueFileFrame(f, generation: gen) }
                 // 流末哨兵：让调度线程把最后一个未配对的 prev 源帧提交出去，
                 // 否则文件的最后一帧会永远停在调度线程手里。
-                if rifeThreadsStarted {
-                    _ = rifeInputQueue.push(.end(generation: gen), timeout: 0.05)
-                }
-                stateLock.lock(); videoDrained = true; stateLock.unlock()
+                enqueueFileItem(.end(generation: gen), generation: gen)
                 Self.trace("video: 已冲刷解码器，尾帧 \(tail.count) 张")
 
             case .packet(let box):
@@ -1164,15 +1231,43 @@ final class PlaybackEngine {
                 noteDecodedFrames(frames.count)
                 let floor = currentMinValidPTS
                 for f in frames where f.pts >= floor {
-                    enqueueFileFrame(f)
+                    enqueueFileFrame(f, generation: gen)
                 }
             }
         }
     }
 
-    private func enqueueFileFrame(_ frame: DecodedVideoFrame) {
+    private func enqueueFileFrame(_ frame: DecodedVideoFrame, generation gen: Int) {
         let fps = videoDecoder?.frameRate ?? detail.video?.frameRate ?? 24
-        processInterpolationFrame(frame, context: .videoFile(fps: fps), pipeline: fileInterpolation)
+        enqueueFileItem(.frame(frame, generation: gen, fps: fps), generation: gen)
+    }
+
+    private func enqueueFileItem(_ item: FileFrameItem, generation gen: Int) {
+        while !isStopping, currentGeneration() == gen {
+            if fileInputQueue.push(item, timeout: 0.05) { return }
+        }
+    }
+
+    private func fileProcessingLoop() {
+        while !isStopping, let item = fileInputQueue.pop() {
+            fileProcessingGate.enter()
+            autoreleasepool {
+                switch item {
+                case .frame(let frame, let gen, let fps):
+                    guard currentGeneration() == gen, !isStopping else { return }
+                    processInterpolationFrame(frame, context: .videoFile(fps: fps), pipeline: fileInterpolation, generation: gen)
+                case .end(let gen):
+                    guard currentGeneration() == gen else { return }
+                    if rifeThreadsStarted {
+                        while !isStopping, currentGeneration() == gen {
+                            if rifeInputQueue.push(.end(generation: gen), timeout: 0.05) { break }
+                        }
+                    }
+                    stateLock.lock(); videoDrained = true; stateLock.unlock()
+                }
+            }
+            fileProcessingGate.leave()
+        }
     }
 
     private func enqueueCaptureFrame(_ frame: DecodedVideoFrame, contentFPS: Double) {
@@ -1181,8 +1276,9 @@ final class PlaybackEngine {
     }
 
     private func processInterpolationFrame(_ f: DecodedVideoFrame, context: FrameSourceContext,
-                                            pipeline: FrameInterpolationPipeline) {
-        let gen = currentGeneration()
+                                            pipeline: FrameInterpolationPipeline, generation sourceGeneration: Int? = nil) {
+        let gen = sourceGeneration ?? currentGeneration()
+        guard gen == currentGeneration(), !isStopping else { return }
         let settings = pipeline.settings
         let fps = context.sourceFPS
         let targetFPS = settings.interpolationTargetFrameRate(source: fps)
@@ -1234,18 +1330,25 @@ final class PlaybackEngine {
             pipeline.metalFX.discardPreviousFrame()
             pipeline.rifeMetal.discardPreviousFrame()
             pipeline.selectionKey = selection
+            pipeline.textPrevious = nil
+            pipeline.textStabilizer?.reset()
         }
         guard needsInterpolation else {
             pushOutputs([effectiveFrame], generation: gen)
             return
         }
+        let textStabilizer = context.isLive && settings.captureTextStability ? pipeline.textStabilizer : nil
+        textStabilizer?.observe(effectiveFrame)
+        let textPrevious = pipeline.textPrevious
+        if context.isLive { pipeline.textPrevious = effectiveFrame }
 
         if backend == .rifeMetalFast,
            let frames = pipeline.rifeMetal.interpolate(effectiveFrame,
                 sourceFPS: fps,
                 targetFPS: targetFPS,
                 maxInputHeight: settings.interpolationFlowResolution.height) {
-            pushOutputs(frames, generation: gen)
+            let stable = textPrevious.map { textStabilizer?.apply(previous: $0,current: effectiveFrame,outputs: frames,slot: 0) ?? frames } ?? frames
+            pushOutputs(stable, generation: gen)
             return
         }
 
@@ -1253,7 +1356,8 @@ final class PlaybackEngine {
            let frames = pipeline.metalFX.interpolate(effectiveFrame,
                 sourceFPS: fps,
                 targetFPS: targetFPS,
-                maxInferenceHeight: settings.interpolationFlowResolution.height) {
+                maxInferenceHeight: settings.interpolationFlowResolution.height,
+                restoreSourceSize: context.isLive, textStabilizer: textStabilizer) {
             pushOutputs(frames, generation: gen)
             return
         }
@@ -1261,7 +1365,8 @@ final class PlaybackEngine {
         if settings.interpolationBackend == .appleVideoToolbox,
            let frames = pipeline.apple.interpolate(effectiveFrame, sourceFPS: fps,
                                                        targetFPS: targetFPS,
-                                                       maxInferenceHeight: settings.interpolationFlowResolution.height) {
+                                                       maxInferenceHeight: settings.interpolationFlowResolution.height,
+                                                       restoreSourceSize: context.isLive, textStabilizer: textStabilizer) {
             pushOutputs(frames, generation: gen)
             return
         }
@@ -1284,6 +1389,24 @@ final class PlaybackEngine {
         let effectivePixelFormat = CVPixelBufferGetPixelFormatType(effectiveFrame.pixelBuffer)
         let effectiveIs10Bit = (effectivePixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ||
                                 effectivePixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange)
+
+        if !context.isLive, !isPacked422, !pipeline.coreML.permanentlyFailed {
+            pipeline.coreML.prewarmIfNeeded(settings: settings,
+                sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
+                sourceHeight: CVPixelBufferGetHeight(effectiveFrame.pixelBuffer),
+                fullRange: effectiveFrame.isFullRange, colorSpaceCode: effectiveFrame.colorSpaceCode,
+                is10Bit: effectiveIs10Bit)
+            let deadline = CACurrentMediaTime() + 30
+            while !pipeline.coreML.isReady(settings: settings,
+                sourceWidth: CVPixelBufferGetWidth(effectiveFrame.pixelBuffer),
+                sourceHeight: CVPixelBufferGetHeight(effectiveFrame.pixelBuffer),
+                fullRange: effectiveFrame.isFullRange, colorSpaceCode: effectiveFrame.colorSpaceCode,
+                is10Bit: effectiveIs10Bit), !pipeline.coreML.permanentlyFailed, CACurrentMediaTime() < deadline {
+                guard !isStopping, currentGeneration() == gen else { return }
+                if settings.rifeRateMode == .off { pushOutputs([effectiveFrame], generation: gen); return }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
 
         if !isPacked422,
            settings.rifeRateMode != .off,
@@ -1373,9 +1496,10 @@ final class PlaybackEngine {
             // 真实神经网络推理（由 waitCapacity 硬限背压调控，杜绝盲目降级削杀真推理）
             let t = ticks
             let job = RifeJob(seq: seq, generation: itemGen,
-                              workerIndex: seq % rifeWorkerQueues.count,
+                              workerIndex: isCaptureMode ? seq % rifeWorkerQueues.count
+                                  : FilePlaybackBufferPolicy.workerIndex(sequence: seq, workers: coreMLInterpolator.workerCount),
                               f0: f0, f1: f1, ticks: t,
-                              includeSourceFrame: seq == 0 || t.isEmpty || captureLatencyPolicy == nil
+                              includeSourceFrame: seq == 0 || t.isEmpty
                                   || !settings.rifeRateMode.needsTimelineResample(sourceFPS: itemFps),
                               fps: itemFps, settings: settings)
             seq += 1
@@ -1476,7 +1600,7 @@ final class PlaybackEngine {
                             // protect-interval 频繁触发 → 输出被压到 ~46fps（实测复现）。
                             // 收紧到 0.90 后 30fps 源稳态每对恰 1 次推理，与 2X 同预算 → 真 60。
                             ticks.append(.init(pts: cursor, alpha: alpha,
-                                               runChain: alpha >= 0.10 && alpha <= 0.90))
+                                               runChain: !similar && alpha >= 0.10 && alpha <= 0.90))
                         }
                     } else if similar {
                         // 静止画面：垫一帧拷贝，不跑网络
@@ -1528,6 +1652,10 @@ final class PlaybackEngine {
                                                       f0: job.f0, f1: job.f1,
                                                       ticks: job.ticks, settings: job.settings,
                                                       includeSourceFrame: job.includeSourceFrame)
+                if job.settings.inputKind == .captureCard, job.settings.captureTextStability,
+                   let stabilizer = captureInterpolation.textStabilizer {
+                    out = stabilizer.apply(previous: job.f0,current: job.f1,outputs: out,slot: index+1)
+                }
             }
             rifeReorder.push(seq: job.seq, gen: job.generation, frames: out)
             }
@@ -1577,7 +1705,7 @@ final class PlaybackEngine {
                 _ = frameQueue.tryPop()
             }
             while !isStopping {
-                if frameQueue.push(outFrame, timeout: 0.1) { break }
+                if frameQueue.push(outFrame, timeout: 0.1, limit: fileBufferPolicy.capacity) { break }
                 if currentGeneration() != gen { return }
             }
         }
@@ -1585,7 +1713,7 @@ final class PlaybackEngine {
         // 原版 startRIFEAudioAfterPrebufferIfNeeded:
         // 当补帧开启且队列已缓冲足够帧数时，唤醒音频播放，避免音频抢跑
         let prebufferTarget = (pipelineSettings.rifeRateMode != .off) ? 8 : 3
-        if !audioPrebufferDone && frameQueue.count >= prebufferTarget {
+        if !audioPrebufferDone && frameQueue.count >= prebufferTarget && fileAudioMayStart {
             audioPrebufferDone = true
             if Self.pauseDiagEnabled {
                 Self.log("[pushOutputs] 预缓冲达成 → audioPrebufferDone=true（帧队列 \(frameQueue.count)）"
@@ -1658,7 +1786,7 @@ final class PlaybackEngine {
             }
         }
         guard scheduledAny else { return }
-        if isWantPlaying, !out.isPlaying {
+        if isWantPlaying, !out.isPlaying, fileAudioMayStart {
             if Self.pauseDiagEnabled {
                 Self.log("[scheduleAudio] 排入后唤醒音频：rife=\(pipelineSettings.rifeRateMode != .off) "
                          + "帧队列=\(frameQueue.count) prebuffer=\(audioPrebufferDone)")
@@ -1701,7 +1829,7 @@ final class PlaybackEngine {
             // 进入播放态但节点没跑时，两者互为死锁 —— 循环不放行就不排新 buffer，
             // 不排 buffer 就没人调 play()，player 不渲染则超前量永远算不出真实值。
             // 每轮补一次起播（内部幂等），循环就能自然解开。
-            if isWantPlaying, let out = audioOutput, !out.isPlaying {
+            if isWantPlaying, fileAudioMayStart, let out = audioOutput, !out.isPlaying {
                 out.play()
             }
 
@@ -1744,6 +1872,8 @@ final class PlaybackEngine {
         videoPacketQueue.flush()
         audioPacketQueue.flush()
         frameQueue.flush()
+        fileInputQueue.flush()
+        fileProcessingGate.freezeAndWait()
         lastPushedPTS = nil
         rifeInputQueue.flush()
         rifeReorder.discardPending()
@@ -1761,6 +1891,7 @@ final class PlaybackEngine {
 
         // 2. 状态复位与重置
         frameLock.lock(); pendingFrame = nil; lastPresentedPTS = -1; loggedFirstFrame = false; audioPrebufferDone = false; frameLock.unlock()
+        frameLock.lock(); fileBuffer = FilePlaybackBufferState(); frameLock.unlock()
         anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
 
         // 3. 真正寻址 + 重置解码器与重采样器
@@ -1803,6 +1934,7 @@ final class PlaybackEngine {
         //    避免「无 buffer 时 playerTime 空转」把时钟带飞。
         videoGate.unfreeze()
         audioGate.unfreeze()
+        fileProcessingGate.unfreeze()
 
         Self.trace(String(format: "seek: 目标 %.3fs，锚点=%d，scheduledAudioEnd=%.3f，generation=%d",
                           target, audioBuffersScheduled ? 1 : 0, clock.scheduledAudioEnd, currentGeneration()))
@@ -1891,6 +2023,8 @@ final class PlaybackEngine {
         videoPacketQueue.flush()
         audioPacketQueue.flush()
         frameQueue.flush()
+        fileInputQueue.flush()
+        fileProcessingGate.freezeAndWait()
         lastPushedPTS = nil
         rifeInputQueue.flush()
         rifeReorder.discardPending()
@@ -1900,7 +2034,7 @@ final class PlaybackEngine {
         rifeMetalInterpolator.reset()
         nativeInterpolationSelection = nil
         coreMLInterpolator.reset()
-        frameLock.lock(); pendingFrame = nil; frameLock.unlock()
+        frameLock.lock(); pendingFrame = nil; fileBuffer = FilePlaybackBufferState(); audioPrebufferDone = false; frameLock.unlock()
         anchorLock.lock(); audioAnchorPTS = nil; audioTimeOffset = 0; audioBuffersScheduled = false; anchorLock.unlock()
 
         _ = src.seek(to: targetTime)
@@ -1921,6 +2055,7 @@ final class PlaybackEngine {
 
         videoGate.unfreeze()
         audioGate.unfreeze()
+        fileProcessingGate.unfreeze()
     }
 
     /// 选中一条内封字幕轨。`-1` = 关闭字幕。
@@ -2358,13 +2493,13 @@ final class PlaybackEngine {
     private var eosTestStage = 0
     private var eosTestAt: TimeInterval = 0
     private var eosTestFrames = 0
+    private var eosTestPresentedFrames = 0
     private func applyEOSReplaySelfTestIfRequested() {
         guard ProcessInfo.processInfo.environment["MP_EOS_TEST"] != nil else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        // 用**解码**帧数而不是上屏帧数：本自检常在「窗口不可见」的无人值守
-        // 环境下跑，MTKView 不绘制，上屏恒为 0，看不出管线到底动没动。
-        // 解码帧数只反映解码线程有没有在推数据，不受渲染影响。
-        statsLock.lock(); let decoded = decodedVideoFrames; statsLock.unlock()
+        // Buffered files may already be fully decoded while paused. Prefer
+        // presented-frame progress; retain the no-window decoder diagnostic.
+        statsLock.lock(); let decoded = decodedVideoFrames; let shown = presentedFrames; statsLock.unlock()
 
         switch eosTestStage {
         case 0:  // A 等片尾
@@ -2387,14 +2522,17 @@ final class PlaybackEngine {
                               eosTestSeekTarget, currentTime, String(describing: state)))
             // C 点播放重播 —— 用户报的第二个症状
             eosTestStage = 3; eosTestAt = now; eosTestFrames = decoded
+            eosTestPresentedFrames = shown
             play()
             Self.log("[EOS自检] C 已调用 play()，等 4s 看是否真的从头重播")
         case 3:
             guard now - eosTestAt >= 4 else { return }
-            let grew = decoded > eosTestFrames + 5
+            let grew = shown > eosTestPresentedFrames + 5
+                || (shown == 0 && decoded > eosTestFrames + 5)
             let rewound = currentTime < max(1.0, duration * 0.8)
             Self.log("[EOS自检] 重播结果：\(grew && rewound ? "PASS" : "FAIL")"
                      + " — 已解码 \(eosTestFrames) → \(decoded)"
+                     + "，已上屏 \(eosTestPresentedFrames) → \(shown)"
                      + String(format: "，时钟 %.2fs / 全长 %.2fs，状态 %@",
                               currentTime, duration, String(describing: state)))
             eosTestStage = 4
@@ -2532,6 +2670,9 @@ final class PlaybackEngine {
         // 必须等「读完了 + 解码线程把自己的队列消费完并冲刷了」才算放完。
         // 只看 eofReached 会得出「文件才读了一半就播完了」的错误结论。
         guard isEOF else { resetEOSStallWatch(); return }
+        // Model warmup/refill is intentional, including very short files whose
+        // entire duration fits inside the old 0.5s end-of-stream tolerance.
+        guard fileAudioMayStart else { resetEOSStallWatch(); return }
 
         // ── 渲染停摆兜底 ──────────────────────────────────────────────
         //
@@ -2565,6 +2706,7 @@ final class PlaybackEngine {
         if hasAudio && !isAudioDrained { return }
         // RIFE worker 可能还压着几对源帧没推理完 —— 不等它就会提前结束
         guard rifeInputQueue.isEmpty else { return }
+        guard fileInputQueue.isEmpty, rifeReorder.inflight == 0 else { return }
         guard frameQueue.isEmpty else { return }
         Self.log("checkEndOfStream 命中：eof=\(isEOF) 视频排空=\(isVideoDrained) 音频排空=\(isAudioDrained)"
                  + " 帧队列=\(frameQueue.count) 在途=\(rifeReorder.inflight) 输入=\(rifeInputQueue.count)")
@@ -2654,7 +2796,7 @@ final class PlaybackEngine {
         // dev-only 反向开关：`MP_NO_RESUME_GUARD=1` 关掉兜底，用来复现「修复前」的
         // 永久冻结（画面冻住、进度条不动、点播放毫无反应），验证兜底确实是它在兜。
         if ProcessInfo.processInfo.environment["MP_NO_RESUME_GUARD"] != nil { return }
-        guard state == .playing, clock.hasAudio, !isCaptureMode else {
+        guard state == .playing, clock.hasAudio, !isCaptureMode, fileAudioMayStart else {
             resumeStallSince = 0
             resumeStallClock = -1
             resumeRecoveryStage = 0
@@ -2814,6 +2956,9 @@ final class PlaybackEngine {
         frameLock.unlock()
         if isCaptureMode {
             c.captureProcessingDepth = "待处理 \(captureFrameQueue.count) · AI输入 \(rifeInputQueue.count) · 在途 \(rifeReorder.inflight)对"
+            if s.captureTextStability, let stabilizer = captureInterpolation.textStabilizer {
+                c.rifeStatusText += " · 文字检测 \(stabilizer.activeRegionCount)区"
+            }
         }
         c.currentTime = clock.currentTime()
         c.isPlaying = isPlaying
@@ -2825,6 +2970,16 @@ final class PlaybackEngine {
         case .paused:              c.stateText = "已暂停"
         case .ended:               c.stateText = "播放结束"
         case .failed(let message): c.stateText = "失败 — \(message)"
+        }
+        if !isCaptureMode, c.rifeActive {
+            frameLock.lock()
+            let buffering = fileBuffer.isBuffering
+            let refills = fileBuffer.rebufferCount
+            frameLock.unlock()
+            let policy = fileBufferPolicy
+            c.isFileBuffering = buffering
+            c.rifeStatusText += " · 缓存 \(frameQueue.count)/\(policy.capacity)帧 · 回填\(refills)次"
+            if buffering, isWantPlaying { c.stateText = "视频预缓冲 \(frameQueue.count)/\(policy.readyFrames)帧（音画同步等待）" }
         }
         c.isHardwareDecode = videoDecoder?.isHardwareAccelerated ?? false
         c.videoDecoderName = videoDecoder?.codecName ?? ""

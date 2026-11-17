@@ -415,6 +415,8 @@ final class PlaybackSettings {
         case volume = "macrife.volume"
         case recentFiles = "macrife.recentFiles"
         case playbackProgress = "macrife.playbackProgress"
+        case fileBufferSeconds = "macrife.fileBufferSeconds"
+        case fileBufferMemoryMB = "macrife.fileBufferMemoryMB"
 
         // RIFE 专属定制
         case rifeFlowSmoothness = "macrife.rifeFlowSmoothness"
@@ -427,6 +429,7 @@ final class PlaybackSettings {
         // 采集卡输入延迟与手动主机30FPS模式
         case fake60FPSOptimization = "macrife.fake60FPSOptimization"
         case captureLowLatencyMode = "macrife.captureLowLatencyMode"
+        case captureTextStability = "macrife.captureTextStability"
 
         // 采集色彩（对标 OBS 的 Color Range / Color Space）
         case captureColorRange = "macrife.captureColorRange"
@@ -448,8 +451,9 @@ final class PlaybackSettings {
                  .metalFX, .anime4k, .anime4kPresetID, .anime4kSharpness, .anime4kDenoise, .decodeMode:
                 return true
             case .rifeRateMode, .volume, .recentFiles, .playbackProgress,
+                 .fileBufferSeconds, .fileBufferMemoryMB,
                  // 色彩范围 / 矩阵 / HDR色调映射每帧在渲染前读取即可生效，不需要重建管线
-                 .captureColorRange, .captureColorMatrix, .hdrToneMapping:
+                 .captureColorRange, .captureColorMatrix, .hdrToneMapping, .captureTextStability:
                 return false
             }
         }
@@ -504,6 +508,8 @@ final class PlaybackSettings {
                 return MPText.t("最近打开", "Recent files")
             case .playbackProgress:
                 return MPText.t("播放进度", "Playback progress")
+            case .fileBufferSeconds: return "视频预缓冲时长"
+            case .fileBufferMemoryMB: return "视频帧缓存预算"
             case .rifeFlowSmoothness:
                 return MPText.t("光流平滑度", "Flow smoothness")
             case .rifeLargeMotionAssist:
@@ -516,6 +522,7 @@ final class PlaybackSettings {
                 return MPText.t("主机 30FPS 模式", "Console 30 FPS mode")
             case .captureLowLatencyMode:
                 return MPText.t("采集卡低延迟", "Capture low latency")
+            case .captureTextStability: return "采集静止文字稳定"
             case .captureColorRange:
                 return MPText.t("采集色彩范围", "Capture color range")
             case .captureColorMatrix:
@@ -737,6 +744,22 @@ final class PlaybackSettings {
         }
     }
 
+    var fileBufferSeconds: Double {
+        get {
+            let value = defaults.double(forKey: Key.fileBufferSeconds.rawValue)
+            return value > 0 ? min(4, max(0.5, value)) : 2
+        }
+        set { defaults.set(min(4, max(0.5, newValue)), forKey: Key.fileBufferSeconds.rawValue); notify(.fileBufferSeconds) }
+    }
+
+    var fileBufferMemoryMB: Int {
+        get {
+            let value = defaults.integer(forKey: Key.fileBufferMemoryMB.rawValue)
+            return value > 0 ? min(2048, max(256, value)) : 1024
+        }
+        set { defaults.set(min(2048, max(256, newValue)), forKey: Key.fileBufferMemoryMB.rawValue); notify(.fileBufferMemoryMB) }
+    }
+
     /// Processing uses the source's fixed profile, including custom targets.
     func interpolationTargetFrameRate(source: Double) -> Double {
         guard source > 0 else { return 0 }
@@ -832,6 +855,11 @@ final class PlaybackSettings {
         set { setEnum(Key.captureLowLatencyMode, newValue == .off ? .balanced : newValue) }
     }
 
+    var captureTextStability: Bool {
+        get { defaults.object(forKey: Key.captureTextStability.rawValue) == nil ? true : defaults.bool(forKey: Key.captureTextStability.rawValue) }
+        set { defaults.set(newValue,forKey: Key.captureTextStability.rawValue); notify(.captureTextStability) }
+    }
+
     /// 采集输入色彩范围。默认「自动」= 读采集卡上报。
     var captureColorRange: CaptureColorRange {
         get { enumValue(Key.captureColorRange, default: .auto) }
@@ -881,9 +909,12 @@ final class PlaybackSettings {
         hdrToneMapping = .auto
         if inputKind == .videoFile {
             deinterlaceMode = .auto
+            fileBufferSeconds = 2
+            fileBufferMemoryMB = 1024
         } else {
             fake60FPSOptimization = .off
             captureLowLatencyMode = .balanced
+            captureTextStability = true
         }
     }
 

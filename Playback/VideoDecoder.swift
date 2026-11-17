@@ -156,8 +156,8 @@ final class VideoDecoder {
         try FFmpegSupport.check(avcodec_parameters_to_context(ctx, parameters),
                                 "avcodec_parameters_to_context")
 
-        // thread_count = 0 → 让 FFmpeg 自己按 CPU 核数决定帧级并行。
-        ctx.pointee.thread_count = 0
+        // File decoding may read ahead: expose every active logical CPU core.
+        ctx.pointee.thread_count = Int32(max(1, ProcessInfo.processInfo.activeProcessorCount))
         ctx.pointee.pkt_timebase = timeBase
 
         // 对老的 MTS 隔行扫描 (1080 50i/60i)，若硬解可能导致 MBAFF 无法反交错或花屏，默认在隔行流中采用极速软解

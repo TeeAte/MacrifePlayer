@@ -32,6 +32,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
     var frameProvider: (() -> DecodedVideoFrame?)?
     var captureModeProvider: (() -> Bool)?
     private let captureGPUInFlight = DispatchSemaphore(value: 2)
+    private let fileGPUInFlight = DispatchSemaphore(value: 3)
     private var usingCaptureLatency = false
     private var redrawRequested = true
     /// 视频原始分辨率，用于等比缩放（letterbox / pillarbox）。
@@ -39,6 +40,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
     /// 向引擎取「此刻该显示的字幕层」。nil = 沿用上一帧，不必重传纹理。
     var subtitleProvider: ((_ width: Int, _ height: Int) -> SubtitleBitmap?)?
+    var continuousSubtitleRedrawProvider: (() -> Bool)?
 
     private var commandQueue: MTLCommandQueue?
     private var pipelineState: MTLRenderPipelineState?
@@ -145,7 +147,10 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
             let displayFPS = window?.screen?.maximumFramesPerSecond ?? 60
             preferredFramesPerSecond = max(60, min(240, max(fps, displayFPS)))
         } else {
-            preferredFramesPerSecond = max(60, min(120, fps))
+            // Poll the display clock frequently but submit only new images.
+            // 24→48/60 files otherwise inherit a coarse 60Hz scheduling grid.
+            let displayFPS = window?.screen?.maximumFramesPerSecond ?? 60
+            preferredFramesPerSecond = max(60, min(120, max(fps, displayFPS)))
         }
     }
 
@@ -260,14 +265,10 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
             (layer as? CAMetalLayer)?.maximumDrawableCount = lowLatency ? 2 : 3
         }
         // GPU 忙时不排队、不阻塞 UI；源帧留在有界队列，下一拍取更新的画面。
-        let permit = lowLatency ? captureGPUInFlight : nil
-        if let permit, permit.wait(timeout: .now()) != .success { return }
+        let permit = lowLatency ? captureGPUInFlight : fileGPUInFlight
+        if permit.wait(timeout: .now()) != .success { return }
         var committed = false
-        defer { if !committed { permit?.signal() } }
-        guard let drawable = currentDrawable,
-              let descriptor = currentRenderPassDescriptor,
-              let queue = commandQueue else { return }
-
+        defer { if !committed { permit.signal() } }
         // 先看有没有新帧要上屏（引擎负责按音视频时钟决定「该不该显示」）
         // 注意：不使用 pointer !== heldPixelBuffer 校验，因为 CVPixelBufferPool 会在同一内存地址快速复用指针，
         // 校验指针会导致回收复用的新帧被误判为旧帧而丢弃，产生高频跳帧与周期性卡顿。
@@ -278,7 +279,11 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
         // 120Hz 只负责及时取到点的帧；没有新画面时保留上一张 drawable，
         // 避免把同一张 60fps 画面渲染两遍，与补帧模型争抢 GPU。
-        if lowLatency && !redrawRequested { return }
+        if !redrawRequested && !overlayNeedsDraw && continuousSubtitleRedrawProvider?() != true { return }
+
+        guard let drawable = currentDrawable,
+              let descriptor = currentRenderPassDescriptor,
+              let queue = commandQueue else { return }
 
         guard let commandBuffer = queue.makeCommandBuffer() else { return }
 
@@ -396,7 +401,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
         let resources = (heldPixelBuffer, lumaRef, chromaRef, packedRef)
         commandBuffer.addCompletedHandler { _ in
             withExtendedLifetime(resources) {}
-            permit?.signal()
+            permit.signal()
         }
         commandBuffer.present(drawable)
         committed = true

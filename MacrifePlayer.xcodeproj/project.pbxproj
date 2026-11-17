@@ -298,6 +298,9 @@
 		B2F4C1032D8C0101000000B5 /* RifeMetal in Frameworks */ = {isa = PBXBuildFile; productRef = B2F4C1042D8C0101000000B5 /* RifeMetal */; };
 		C3F4C1012D8C0101000000B6 /* Packed422GPUConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3F4C1022D8C0101000000B6 /* Packed422GPUConverter.swift */; };
 		DDA7110A2026111700010001 /* FrameInterpolationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA7110A2026111700010002 /* FrameInterpolationPipeline.swift */; };
+		DDA7110A2026111700040001 /* CaptureTextStabilizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA7110A2026111700040002 /* CaptureTextStabilizer.swift */; };
+		DDA7110A2026111700030001 /* RIFEMetalKernels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA7110A2026111700030002 /* RIFEMetalKernels.swift */; };
+		DDA7110A2026111700020001 /* FilePlaybackBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA7110A2026111700020002 /* FilePlaybackBuffer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -674,6 +677,9 @@
 		B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RifeMetalFastInterpolator.swift; sourceTree = "<group>"; };
 		C3F4C1022D8C0101000000B6 /* Packed422GPUConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packed422GPUConverter.swift; sourceTree = "<group>"; };
 		DDA7110A2026111700010002 /* FrameInterpolationPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameInterpolationPipeline.swift; sourceTree = "<group>"; };
+		DDA7110A2026111700040002 /* CaptureTextStabilizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureTextStabilizer.swift; sourceTree = "<group>"; };
+		DDA7110A2026111700030002 /* RIFEMetalKernels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFEMetalKernels.swift; sourceTree = "<group>"; };
+		DDA7110A2026111700020002 /* FilePlaybackBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePlaybackBuffer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1038,6 +1044,9 @@
 				A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */,
 				B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */,
 				DDA7110A2026111700010002 /* FrameInterpolationPipeline.swift */,
+				DDA7110A2026111700040002 /* CaptureTextStabilizer.swift */,
+				DDA7110A2026111700030002 /* RIFEMetalKernels.swift */,
+		DDA7110A2026111700020002 /* FilePlaybackBuffer.swift */,
 				C3F4C1022D8C0101000000B6 /* Packed422GPUConverter.swift */,
 				39DD7B8C2D5521DFEBD514B0 /* PipelinePrimitives.swift */,
 				386A4DCF0250608F4B4295C5 /* PlaybackEngine.swift */,
@@ -1480,6 +1489,9 @@
 				A1F4C1012D8C0101000000B4 /* MetalFXCaptureInterpolator.swift in Sources */,
 				B2F4C1012D8C0101000000B5 /* RifeMetalFastInterpolator.swift in Sources */,
 				DDA7110A2026111700010001 /* FrameInterpolationPipeline.swift in Sources */,
+				DDA7110A2026111700040001 /* CaptureTextStabilizer.swift in Sources */,
+				DDA7110A2026111700030001 /* RIFEMetalKernels.swift in Sources */,
+		DDA7110A2026111700020001 /* FilePlaybackBuffer.swift in Sources */,
 				C3F4C1012D8C0101000000B6 /* Packed422GPUConverter.swift in Sources */,
 				D29EF87D172FE61B4FBD88F8 /* PipelinePrimitives.swift in Sources */,
 				96C355A470526C1132B8568D /* PlaybackEngine.swift in Sources */,

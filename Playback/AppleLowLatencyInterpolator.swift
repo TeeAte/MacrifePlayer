@@ -15,6 +15,7 @@ final class AppleLowLatencyInterpolator {
     private let statsLock = NSLock()
     private var generated = 0
     private var processingMS = 0.0
+    private var processingWindow = InterpolationProcessingWindow()
     private var status = "Apple 低延迟待命"
     private var active = false
 
@@ -24,7 +25,7 @@ final class AppleLowLatencyInterpolator {
 
     var snapshot: (frames: Int, status: String, processingSeconds: Double, active: Bool) {
         statsLock.lock(); defer { statsLock.unlock() }
-        return (generated, status, generated > 0 ? processingMS / Double(generated) / 1000 : 0, active)
+        return (generated, status, processingWindow.estimate, active)
     }
 
     func reset() {
@@ -35,6 +36,7 @@ final class AppleLowLatencyInterpolator {
         statsLock.lock()
         generated = 0
         processingMS = 0
+        processingWindow.reset()
         status = "Apple 低延迟待命"
         active = false
         statsLock.unlock()
@@ -50,7 +52,8 @@ final class AppleLowLatencyInterpolator {
 
     /// nil 表示当前格式/帧率/系统不支持，由播放引擎继续走 RIFE。
     func interpolate(_ frame: DecodedVideoFrame, sourceFPS: Double,
-                     targetFPS: Double, maxInferenceHeight: Int = 720) -> [DecodedVideoFrame]? {
+                     targetFPS: Double, maxInferenceHeight: Int = 720, restoreSourceSize: Bool = true,
+                     textStabilizer: CaptureTextStabilizer? = nil) -> [DecodedVideoFrame]? {
         processingLock.lock(); defer { processingLock.unlock() }
         guard Self.supports(sourceFPS: sourceFPS, targetFPS: targetFPS), !frame.isHDR else {
             setStatus("当前帧率或 HDR 使用 RIFE 回退")
@@ -63,24 +66,28 @@ final class AppleLowLatencyInterpolator {
         let width = CVPixelBufferGetWidth(frame.pixelBuffer)
         let height = CVPixelBufferGetHeight(frame.pixelBuffer)
         let inferenceHeight = max(2, maxInferenceHeight)
-        let key = "\(width)x\(height)|\(inferenceHeight)|\(CVPixelBufferGetPixelFormatType(frame.pixelBuffer))|\(frame.colorSpaceCode)|\(frame.isFullRange)"
+        let key = "\(width)x\(height)|\(inferenceHeight)|\(restoreSourceSize)|\(CVPixelBufferGetPixelFormatType(frame.pixelBuffer))|\(frame.colorSpaceCode)|\(frame.isFullRange)"
         guard !failedKeys.contains(key) else { return nil }
         do {
             if configurationKey != key {
                 storage = nil
                 storage = try AppleInterpolationSession(width: width, height: height,
                                                          colorSpaceCode: frame.colorSpaceCode,
-                                                         maxInferenceHeight: inferenceHeight)
+                                                         maxInferenceHeight: inferenceHeight, restoreSourceSize: restoreSourceSize)
                 configurationKey = key
+                statsLock.lock(); processingWindow.reset(); statsLock.unlock()
             }
             guard let session = storage as? AppleInterpolationSession else { return nil }
             let start = CACurrentMediaTime()
-            let frames = try session.interpolate(frame)
+            let frames = try session.interpolate(frame, textStabilizer: textStabilizer)
             let count = frames.filter(\.isInterpolated).count
             statsLock.lock()
             generated += count
             active = true
-            if count > 0 { processingMS += (CACurrentMediaTime() - start) * 1000 }
+            if count > 0 {
+                let duration = CACurrentMediaTime() - start
+                processingMS += duration * 1000; processingWindow.record(duration / Double(count))
+            }
             status = generated > 0
                 ? String(format: "Apple %dx%d 补帧 → %dx%d · 处理均耗 %.1f ms", session.width, session.height,
                          width, height, processingMS / Double(generated))
@@ -114,10 +121,13 @@ private final class AppleInterpolationSession {
     private let outputPool: CVPixelBufferPool
     private let resizer: NV12GPUResizer?
     private let packedConverter = Packed422GPUConverter()
+    private let restoreSourceSize: Bool
     private var previous: (frame: DecodedVideoFrame, small: CVPixelBuffer)?
     private(set) var hudProtectionActive = false
 
-    init(width sourceWidth: Int, height sourceHeight: Int, colorSpaceCode: Int32, maxInferenceHeight: Int) throws {
+    init(width sourceWidth: Int, height sourceHeight: Int, colorSpaceCode: Int32, maxInferenceHeight: Int,
+         restoreSourceSize: Bool) throws {
+        self.restoreSourceSize = restoreSourceSize
         guard VTLowLatencyFrameInterpolationConfiguration.isSupported else { throw Failure.unsupported }
         let dimensions = InferenceGeometry.fit(sourceWidth: sourceWidth, sourceHeight: sourceHeight,
                                                maxHeight: maxInferenceHeight)
@@ -160,7 +170,7 @@ private final class AppleInterpolationSession {
 
     }
 
-    func interpolate(_ frame: DecodedVideoFrame) throws -> [DecodedVideoFrame] {
+    func interpolate(_ frame: DecodedVideoFrame, textStabilizer: CaptureTextStabilizer?) throws -> [DecodedVideoFrame] {
         let detail = CVPixelBufferGetPixelFormatType(frame.pixelBuffer) == kCVPixelFormatType_422YpCbCr8_yuvs
             ? try packedConverter.convert(frame.pixelBuffer, fullRange: frame.isFullRange) : frame.pixelBuffer
         let small = try Self.buffer(from: sourcePool)
@@ -197,12 +207,19 @@ private final class AppleInterpolationSession {
                 sourceFrame: source, previousFrame: reference, interpolationPhase: [0.5], destinationFrames: [destination]) else {
             throw Failure.unsupported
         }
-        let output = try Self.buffer(from: outputPool)
+        // Files cache the model's native pixels; the display scales once.
+        let output = restoreSourceSize ? try Self.buffer(from: outputPool) : intermediate
         if let command, let resizer {
             // 缩小、ML 补帧、放大进入同一个 GPU 批次，只同步等待一次。
             processor.process(with: command, parameters: parameters)
-            textureReferences += try resizer.encodeResize(intermediate, to: output,
-                fullRange: false, command: command)
+            if restoreSourceSize {
+                textureReferences += try resizer.encodeResize(intermediate, to: output,
+                    fullRange: false, command: command)
+            }
+            if let textStabilizer {
+                _ = try? textStabilizer.encode(previous: prior.frame,current: frame,output: output,
+                    outputFullRange: false,command: command)
+            }
             try withExtendedLifetime((parameters, frame, prior, detail, small, intermediate, output)) {
                 try resizer.finish(command, retaining: textureReferences)
             }
@@ -217,7 +234,7 @@ private final class AppleInterpolationSession {
             }
             done.wait()
             if let failure { throw failure }
-            try resize(intermediate, to: output, fullRange: false)
+            if restoreSourceSize { try resize(intermediate, to: output, fullRange: false) }
         }
         let middle = DecodedVideoFrame(pixelBuffer: output, pts: middlePTS,
                                       isBT709: frame.isBT709, colorSpaceCode: frame.colorSpaceCode,

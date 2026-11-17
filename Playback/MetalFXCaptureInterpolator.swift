@@ -17,12 +17,13 @@ final class MetalFXCaptureInterpolator {
     private var failures: [String: String] = [:]
     private var generated = 0
     private var processingSeconds = 0.0
+    private var processingWindow = InterpolationProcessingWindow()
     private var status = "MetalFX 实验性补帧待命"
     private var active = false
 
     var snapshot: (frames: Int, status: String, processingSeconds: Double, active: Bool) {
         statsLock.lock(); defer { statsLock.unlock() }
-        return (generated, status, generated > 0 ? processingSeconds / Double(generated) : 0, active)
+        return (generated, status, processingWindow.estimate, active)
     }
 
     func reset() {
@@ -32,6 +33,7 @@ final class MetalFXCaptureInterpolator {
         failures.removeAll()
         statsLock.lock()
         generated = 0; processingSeconds = 0
+        processingWindow.reset()
         status = "MetalFX 实验性补帧待命"; active = false
         statsLock.unlock()
     }
@@ -42,7 +44,8 @@ final class MetalFXCaptureInterpolator {
     }
 
     func interpolate(_ frame: DecodedVideoFrame, sourceFPS: Double, targetFPS: Double,
-                     maxInferenceHeight: Int) -> [DecodedVideoFrame]? {
+                     maxInferenceHeight: Int, restoreSourceSize: Bool = true,
+                     textStabilizer: CaptureTextStabilizer? = nil) -> [DecodedVideoFrame]? {
         processingLock.lock(); defer { processingLock.unlock() }
         guard AppleLowLatencyInterpolator.supports(sourceFPS: sourceFPS, targetFPS: targetFPS), !frame.isHDR else {
             discardSessionHistory()
@@ -55,22 +58,26 @@ final class MetalFXCaptureInterpolator {
         }
         let sourceWidth = CVPixelBufferGetWidth(frame.pixelBuffer)
         let sourceHeight = CVPixelBufferGetHeight(frame.pixelBuffer)
-        let key = "\(sourceWidth)x\(sourceHeight)|\(maxInferenceHeight)|\(CVPixelBufferGetPixelFormatType(frame.pixelBuffer))|\(frame.colorSpaceCode)|\(frame.isFullRange)"
+        let key = "\(sourceWidth)x\(sourceHeight)|\(maxInferenceHeight)|\(restoreSourceSize)|\(CVPixelBufferGetPixelFormatType(frame.pixelBuffer))|\(frame.colorSpaceCode)|\(frame.isFullRange)"
         if let failure = failures[key] { setStatus(failure); return nil }
         do {
             if configurationKey != key {
                 storage = nil
                 storage = try MetalFXCaptureSession(sourceWidth: sourceWidth, sourceHeight: sourceHeight,
-                    maxInferenceHeight: maxInferenceHeight, colorSpaceCode: frame.colorSpaceCode)
+                    maxInferenceHeight: maxInferenceHeight, colorSpaceCode: frame.colorSpaceCode, restoreSourceSize: restoreSourceSize)
                 configurationKey = key
+                statsLock.lock(); processingWindow.reset(); statsLock.unlock()
             }
             guard let session = storage as? MetalFXCaptureSession else { return nil }
             let start = CACurrentMediaTime()
-            let frames = try session.interpolate(frame)
+            let frames = try session.interpolate(frame, textStabilizer: textStabilizer)
             let count = frames.filter(\.isInterpolated).count
             statsLock.lock()
             generated += count
-            if count > 0 { processingSeconds += CACurrentMediaTime() - start }
+            if count > 0 {
+                let duration = CACurrentMediaTime() - start
+                processingSeconds += duration; processingWindow.record(duration / Double(count))
+            }
             active = true
             status = String(format: "MetalFX 实验性 %dx%d · 估算光流 / 平面深度", session.width, session.height)
             if generated > 0 { status += String(format: " · 处理均耗 %.1f ms", processingSeconds * 1000 / Double(generated)) }
@@ -113,11 +120,14 @@ private final class MetalFXCaptureSession {
     private let transfer: VTPixelTransferSession
     private let colorSpaceCode: Int32
     private let packedConverter = Packed422GPUConverter()
+    private let restoreSourceSize: Bool
     private var previous: (frame: DecodedVideoFrame, small: CVPixelBuffer, color: MTLTexture)?
     private var resetHistory = true
     private(set) var hudProtectionActive = false
 
-    init(sourceWidth: Int, sourceHeight: Int, maxInferenceHeight: Int, colorSpaceCode: Int32) throws {
+    init(sourceWidth: Int, sourceHeight: Int, maxInferenceHeight: Int, colorSpaceCode: Int32,
+         restoreSourceSize: Bool) throws {
+        self.restoreSourceSize = restoreSourceSize
         guard let device = MTLCreateSystemDefaultDevice(), MTLFXFrameInterpolatorDescriptor.supportsDevice(device) else {
             throw Failure.unavailable("当前 GPU 不支持 MetalFX 补帧")
         }
@@ -178,7 +188,7 @@ private final class MetalFXCaptureSession {
 
     }
 
-    func interpolate(_ frame: DecodedVideoFrame) throws -> [DecodedVideoFrame] {
+    func interpolate(_ frame: DecodedVideoFrame, textStabilizer: CaptureTextStabilizer?) throws -> [DecodedVideoFrame] {
         let detail = CVPixelBufferGetPixelFormatType(frame.pixelBuffer) == kCVPixelFormatType_422YpCbCr8_yuvs
             ? try packedConverter.convert(frame.pixelBuffer, fullRange: frame.isFullRange) : frame.pixelBuffer
         let small = try Self.buffer(sourcePool)
@@ -250,7 +260,7 @@ private final class MetalFXCaptureSession {
         effect.encode(commandBuffer: command)
 
         let intermediate = try Self.buffer(sourcePool)
-        let output = try Self.buffer(outputPool)
+        let output = restoreSourceSize ? try Self.buffer(outputPool) : intermediate
         let outY = try texture(intermediate, format: .r8Unorm, plane: 0, references: &references)
         let outUV = try texture(intermediate, format: .rg8Unorm, plane: 1, references: &references)
         guard let restore = command.makeComputeCommandEncoder() else { throw Failure.encoding }
@@ -259,7 +269,13 @@ private final class MetalFXCaptureSession {
         restore.setBytes(&matrix, length: MemoryLayout<Int32>.size, index: 0)
         dispatch(restore, width: width, height: height)
         restore.endEncoding()
-        references += try resizer.encodeResize(intermediate, to: output, fullRange: false, command: command)
+        if restoreSourceSize {
+            references += try resizer.encodeResize(intermediate, to: output, fullRange: false, command: command)
+        }
+        if let textStabilizer {
+            _ = try? textStabilizer.encode(previous: prior.frame,current: frame,output: output,
+                outputFullRange: false,command: command)
+        }
         try withExtendedLifetime((flow, motionInput, intermediate, prior, frame, detail, small, color, output)) {
             try resizer.finish(command, retaining: references)
         }

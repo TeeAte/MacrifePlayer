@@ -60,6 +60,19 @@ enum InferenceGeometry {
     }
 }
 
+/// Playout follows recent model cost rather than a lifetime average containing
+/// compilation/cold-start stalls. A median rejects a single transient spike.
+struct InterpolationProcessingWindow {
+    private var values: [Double] = []
+    var estimate: Double { values.isEmpty ? 0 : values.sorted()[values.count / 2] }
+    mutating func record(_ seconds: Double) {
+        guard seconds.isFinite, seconds > 0 else { return }
+        values.append(seconds)
+        if values.count > 7 { values.removeFirst(values.count - 7) }
+    }
+    mutating func reset() { values.removeAll(keepingCapacity: true) }
+}
+
 /// Manual console-30 mode: keep the first capture tick, then every other
 /// tick on the 60Hz PTS grid. No image sampling, detection window or lookahead.
 /// Using PTS parity (rather than callback count) preserves phase across drops.
