@@ -1,0 +1,50 @@
+{
+  "status": "withdrawn_after_user_reported_loss_of_interpolation_effect",
+  "final_strategy": {
+    "rifeMetalFast": "Retained original-size native model warp/blend with independent inference grid; removed additional source-pixel replacement.",
+    "apple_and_metalfx": "Custom source reconstruction and HUD/static replacement withdrawn. Current implementation displays actual system-generated intermediate frames.",
+    "original_frames": "Source pixel buffer objects retained unchanged."
+  },
+  "tests": {
+    "analytic_moving_pattern": {
+      "naive_upscale_mae": 28.0,
+      "video_range_mae": 0.06,
+      "full_range_mae": 0.27,
+      "contrast_percent": 100.0
+    },
+    "real_apple_576_with_1080p60_yuvs": {
+      "midpoint_mae": [
+        0.07,
+        0.07,
+        0.07
+      ],
+      "contrast_percent": [
+        99.9,
+        100.0,
+        99.9
+      ],
+      "midpoint_geometry_better_than_copying_current": true,
+      "source_identity_preserved": true
+    },
+    "rifeMetal_576_full_source": {
+      "static_detail_mae": 0.0,
+      "source_dimensions": [
+        1920,
+        1080
+      ],
+      "flow_dimensions": [
+        256,
+        192
+      ]
+    },
+    "apple_existing_regressions": "passed; includes HUD, full/video range, moving background and console30 timing",
+    "configuration_checks": 9,
+    "capture_checks": 17
+  },
+  "build": "Release arm64 passed",
+  "signature": "codesign --verify --deep --strict passed",
+  "visual_validation": "User reported that clarity was preserved but interpolation effect almost disappeared. Previous synthetic clarity metrics were insufficient; custom reconstruction has been removed.",
+  "hardware_performance_note": "Locked-screen diagnostic runs are saved separately and not used as final high-refresh performance validation.",
+  "tests_are_historical": true,
+  "replaced_by": "output/chain-split-20261117/validation.json"
+}

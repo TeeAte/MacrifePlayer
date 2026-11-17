@@ -1,0 +1,144 @@
+2026-11-17 00:15:24.211 Macrife Player[34659:4720508] [ModelPackageManager] 缓存模型包已就绪: /Users/teeate/Library/Application Support/MacrifePlayer/Models
+[PlayerContainer] 丢弃重复打开请求（2s 窗口内）: file24.mp4
+[PlaybackEngine] 字幕：这个文件没有字幕轨
+[PlaybackEngine] 视频解码器已建立: h264 (硬解 VideoToolbox) [MTS/隔行提示: false, 时间轴重建: false]
+[PlaybackEngine] 已打开 file24.mp4 — mov,mp4,m4a,3gp,3g2,mj2 · 00:30 · h264 1280x720 @24.000 fps
+[PlaybackEngine] 状态变迁: opening -> playing
+[PlaybackEngine] 保活：已持有电源断言（MacrifePlayer 播放中）
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.706 Macrife Player[34659:4720507] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-17 00:15:24.754 Macrife Player[34659:4720507] [AppleInterpolation] 会话就绪: 1024x576 → 1280x720（原帧保留）
+[PlaybackEngine] 首帧上屏 pts=0.000s (音视频时钟基准已绝对对齐)
+
+===== 性能监看（MP_DUMP_STATS）=====
+① 源视频参数
+file24.mp4  ·  QuickTime / MOV
+00:30  ·  总码率 6.06 Mb/s  ·  22.7 MB  ·  流 1（V1/A0/S0）
+视频  h264 Constrained Baseline L3.1  1280x720  24 fps
+像素 yuv420p  ·  码率 6.06 Mb/s
+音频  无
+② 补帧后（输出）
+补帧  48 fps (Apple)  ·  目标 48 fps · 实测 48.4 FPS
+模型  Apple · 原帧保持源画质
+推理预算  576p · 系统管理（不公开 FP16 / FP32 控制）
+处理  Apple 1024x576 补帧 → 1280x720 · 处理均耗 12.9 ms · 系统真实中间帧
+输出  1280x720  （已插帧 252 帧）
+增强  MetalFX 关闭  ·  Anime4K 关闭
+解码  硬解（VideoToolbox · h264）
+状态  ✅ Apple AI 补帧活跃运行中 · 输出 48 fps
+③ 性能参数
+渲染   48.4 fps    解码   23.2 fps
+帧    已解码 253  已上屏 456  丢帧 0
+队列  视频包 200/200  音频包 0/128  帧 48/48
+音画  时钟 9.48s  末帧 9.48s  偏差 +0.004s  ·  墙钟
+资源  CPU 0.0%  内存 RSS 168 / 足迹 234 / 压缩 0 MB  ·  GPU Apple M1 Pro
+状态  播放中
+
+  panelVisible: true
+
+---- 字幕层 ----
+引擎    无字幕
+已上传  （尚未绘制过字幕层）
+主动     9.486s · 没有渲染器，取不到位图
+
+===== 结束 =====
+[PlaybackEngine] 状态变迁: playing -> idle
+[PlaybackEngine] 保活：已释放电源断言

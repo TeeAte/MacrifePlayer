@@ -27,8 +27,9 @@ public final class IFNetGraph {
     private let internalHeight: Int
     private let internalScale: Double
     private let scaleList: [Int]
-    // 仅 Balanced 融合裁剪；空阶段模型仍使用完整尺寸的转换回退。
-    package var supportsCroppedOutput: Bool { internalScale == 0.5 && !scaleList.isEmpty }
+    // The final mask/warp indexes use the padded grid for every inference
+    // divisor. Only the writeout is cropped; empty-stage fallback is excluded.
+    package var supportsCroppedOutput: Bool { internalScale < 1.0 && !scaleList.isEmpty }
     private let textureCache: CVMetalTextureCache
 
     /// Pre-allocated buffer/texture pool — eliminates per-call GPU heap traffic.

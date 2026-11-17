@@ -1,5 +1,53 @@
 import Foundation
 
+enum PlaybackInputKind: String {
+    case videoFile, captureCard
+    var title: String { self == .videoFile ? "视频文件" : "采集卡" }
+}
+
+/// FPS and scheduling travel with a frame instead of being inferred from the
+/// last capture session's global state.
+enum FrameSourceContext {
+    case videoFile(fps: Double)
+    case captureCard(transportFPS: Double, contentFPS: Double)
+
+    var inputKind: PlaybackInputKind {
+        switch self { case .videoFile: return .videoFile; case .captureCard: return .captureCard }
+    }
+    var sourceFPS: Double {
+        switch self { case .videoFile(let fps): return fps; case .captureCard(_, let fps): return fps }
+    }
+    var isLive: Bool { inputKind == .captureCard }
+    func needsInterpolation(enabled: Bool, targetFPS: Double) -> Bool {
+        enabled && targetFPS > sourceFPS + 0.5
+    }
+}
+
+/// UVC startup can deliver a zero timestamp before switching to host uptime.
+/// Keep that epoch change out of the playout clock and interpolation cadence.
+struct CaptureTimestampMapper {
+    private var offset: Double?
+    private var lastPTS: Double = 0
+
+    mutating func reset() { self = Self() }
+
+    mutating func time(sourceTime: Double, fallbackTime: Double) -> Double? {
+        guard sourceTime.isFinite, sourceTime > 0 else {
+            guard offset != nil else { return nil }
+            lastPTS = max(lastPTS, fallbackTime)
+            return lastPTS
+        }
+        if offset == nil { offset = sourceTime }
+        var pts = sourceTime - offset!
+        if pts < lastPTS - 0.001 || abs(pts - fallbackTime) > 5 {
+            offset = sourceTime - fallbackTime
+            pts = fallbackTime
+        }
+        lastPTS = max(lastPTS, pts)
+        return lastPTS
+    }
+}
+
 /// Fit inference to the chosen 16:9 budget without upscaling source pixels.
 /// Both dimensions stay even for NV12. This is independent of queue latency.
 enum InferenceGeometry {

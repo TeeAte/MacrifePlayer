@@ -1,0 +1,159 @@
+{
+  "target": {
+    "name": "USB3 Video",
+    "vid": "345f",
+    "pid": "2130",
+    "serial": "20210623",
+    "usb_location": "0x01240000",
+    "link_bps": 5000000000
+  },
+  "original_backup": "backups/original-read1.bin",
+  "original_bytes": 65536,
+  "original_sha256": "77df5d706d27a39ad09f56d3de39384d9eae43be0784e3d5db28a02eb8260ea5",
+  "second_read_identical": true,
+  "firmware": "firmware/ms2130_patched_v1.bin",
+  "firmware_source": "https://github.com/steve-m/ms2130_patcher",
+  "firmware_bytes": 53806,
+  "firmware_sha256": "d617e20475d78b46dc5df702311312fff90e2e49356ebc22ee372738d257c80f",
+  "regenerated_patch_identical": true,
+  "status": "completed_flashed_verified_power_cycled_high_resolution_formats_confirmed",
+  "preflash_backup_identical": true,
+  "tool_source": "https://github.com/steve-m/ms213x_flash",
+  "flasher_local_changes": [
+    "Prefer HID API on macOS to avoid detaching camera kernel interfaces",
+    "Read all 65536 flash bytes for complete recovery backups",
+    "Abort on erase/write errors and return failure on verification mismatch"
+  ],
+  "file_sha256": {
+    "tools/ms213x_flash.upstream.c": "df002b729b8721c80045f6599b6b69a9b165925db6f32b646223bce564771d1f",
+    "tools/ms2130_patch.c": "7c2d5b5f414d1b614782274cffa73c4c4a8d33886f72ae02a0b40717d1837bc7",
+    "tools/ms213x_flash.c": "e9aef1a9ab995ea51ab3ca475c826e2350f56b8d005ed8ae94e18a7089461098"
+  },
+  "flash_completed_at": "2026-11-16T21:17:31.470787+08:00",
+  "confirmed_at": "2026-11-16T21:19:10.176719+08:00",
+  "confirmed_formats": [
+    {
+      "height": 1080,
+      "pixelFormat": "yuvs",
+      "rates": [
+        {
+          "max": 60.000240000960005,
+          "min": 60.000240000960005
+        },
+        {
+          "max": 50,
+          "min": 50
+        },
+        {
+          "max": 30.00003000003,
+          "min": 30.00003000003
+        },
+        {
+          "max": 20,
+          "min": 20
+        },
+        {
+          "max": 10,
+          "min": 10
+        }
+      ],
+      "width": 1920
+    },
+    {
+      "height": 1080,
+      "pixelFormat": "420v",
+      "rates": [
+        {
+          "max": 60.000240000960005,
+          "min": 60.000240000960005
+        },
+        {
+          "max": 50,
+          "min": 50
+        },
+        {
+          "max": 30.00003000003,
+          "min": 30.00003000003
+        },
+        {
+          "max": 20,
+          "min": 20
+        },
+        {
+          "max": 10,
+          "min": 10
+        }
+      ],
+      "width": 1920
+    },
+    {
+      "height": 1440,
+      "pixelFormat": "yuvs",
+      "rates": [
+        {
+          "max": 50,
+          "min": 50
+        },
+        {
+          "max": 30.00003000003,
+          "min": 30.00003000003
+        },
+        {
+          "max": 20,
+          "min": 20
+        },
+        {
+          "max": 10,
+          "min": 10
+        }
+      ],
+      "width": 2560
+    },
+    {
+      "height": 1440,
+      "pixelFormat": "420v",
+      "rates": [
+        {
+          "max": 50,
+          "min": 50
+        },
+        {
+          "max": 30.00003000003,
+          "min": 30.00003000003
+        },
+        {
+          "max": 20,
+          "min": 20
+        },
+        {
+          "max": 10,
+          "min": 10
+        }
+      ],
+      "width": 2560
+    },
+    {
+      "height": 2160,
+      "pixelFormat": "yuvs",
+      "rates": [
+        {
+          "max": 18.000018000018,
+          "min": 18.000018000018
+        }
+      ],
+      "width": 3840
+    },
+    {
+      "height": 2160,
+      "pixelFormat": "420v",
+      "rates": [
+        {
+          "max": 18.000018000018,
+          "min": 18.000018000018
+        }
+      ],
+      "width": 3840
+    }
+  ],
+  "validation_scope": "Firmware write/readback and macOS format enumeration; no live frame quality or sustained-FPS test"
+}

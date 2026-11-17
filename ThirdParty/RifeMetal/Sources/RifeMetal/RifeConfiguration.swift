@@ -39,13 +39,18 @@ public struct RifeConfiguration: Sendable {
     public var modelURL: URL
     public var qualityTier: RifeQualityTier
     public var preferredDevice: MTLDevice?
+    /// Optional integer inference downscale. Final warp/blend still uses the
+    /// original input resolution. Nil preserves the upstream quality tier.
+    public var inferenceDivisor: Int?
 
     public init(modelURL: URL,
                 qualityTier: RifeQualityTier = .hq,
-                preferredDevice: MTLDevice? = nil) {
+                preferredDevice: MTLDevice? = nil,
+                inferenceDivisor: Int? = nil) {
         self.modelURL = modelURL
         self.qualityTier = qualityTier
         self.preferredDevice = preferredDevice
+        self.inferenceDivisor = inferenceDivisor
     }
 }
 

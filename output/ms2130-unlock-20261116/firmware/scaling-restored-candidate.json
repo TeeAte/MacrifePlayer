@@ -1,0 +1,33 @@
+{
+  "status": "written_verified_power_cycled_capture_validated",
+  "base_sha256": "054023c28fc02dffad0bc126431e1525bd2f0b253bd64e61e3c409f01b016dd4",
+  "installed_patch_sha256": "d617e20475d78b46dc5df702311312fff90e2e49356ebc22ee372738d257c80f",
+  "candidate_sha256": "f006579770c14702387827dccb71bcd94994e4a00acb3f7d1aee1e6db20bfcd9",
+  "size": 53806,
+  "restored_instructions": [
+    {
+      "file_offset": "0x93ae",
+      "before": "007e10",
+      "after": "1289c9"
+    },
+    {
+      "file_offset": "0x93c9",
+      "before": "007e10",
+      "after": "1289c9"
+    }
+  ],
+  "code_checksum": "0xaf5",
+  "changed_file_offsets": [
+    "0x93ae",
+    "0x93af",
+    "0x93b0",
+    "0x93c9",
+    "0x93ca",
+    "0x93cb",
+    "0xd22c",
+    "0xd22d"
+  ],
+  "edid_unchanged": true,
+  "note": "Flashed with user authorization; all 53806 bytes verified. USB power cycle confirmed. Full image validated at 1080p60, 1440p30 and 2160p18. 1440p50 still reaches only about 32fps on screen.",
+  "user_authorization": "刷入吧，反正有备用固件"
+}

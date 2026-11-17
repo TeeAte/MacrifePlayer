@@ -1,0 +1,74 @@
+{
+  "status": "complete",
+  "started_at": "2026-11-16T22:18:11.426481+08:00",
+  "device": {
+    "vid": "345F",
+    "pid": "2130",
+    "serial": "20210623",
+    "usb_location": "0x02230000",
+    "usb_link_bps": 5000000000
+  },
+  "target": "firmware/ms2130_scaling_restored_candidate.bin",
+  "target_sha256": "f006579770c14702387827dccb71bcd94994e4a00acb3f7d1aee1e6db20bfcd9",
+  "new_full_backup": "backups/before-scaling-restore.bin",
+  "log": "scaling-restore-flash.log",
+  "user_authorization": "刷入吧，反正有备用固件",
+  "readback_verification_enabled": true,
+  "backup_size": 65536,
+  "backup_sha256": "9befe1402f582f1fd2cc482f44f6f494800623536a9f8aea58ecdf45459d3e39",
+  "backup_matches_previous_target": true,
+  "verified_at": "2026-11-16T22:20:24.156631+08:00",
+  "verified_bytes": 53806,
+  "hardware_scaling_and_capture_test": "passed",
+  "completed_at": "2026-11-16T22:24:57.280941+08:00",
+  "power_cycle_confirmed_by_user": true,
+  "post_power_cycle_device": {
+    "vid": "345F",
+    "pid": "2130",
+    "serial": "20210623",
+    "usb_link_bps": 5000000000
+  },
+  "ps5_resolution_setting_observed": "2160p; observed in captured PS5 settings, actual HDMI timing not independently measured",
+  "validation": [
+    {
+      "capture": "2560x1440 yuvs 30",
+      "full_frame_confirmed_via_cua": true,
+      "run_seconds_approximately": 60,
+      "observed_at_playback_seconds": 36.22,
+      "delivered_fps": 30.0,
+      "render_fps": 30.0,
+      "decoded": 1088,
+      "presented": 1085,
+      "dropped": 3,
+      "note": "Counters from CUA; CLI auto-exit preceded final text dump."
+    },
+    {
+      "capture": "1920x1080 yuvs 60",
+      "log": "capture-1080-scaling-restored.log",
+      "delivered_fps_ema": 62.49,
+      "render_fps": 59.07,
+      "presented": 1211,
+      "dropped": 6,
+      "full_frame_confirmed_via_cua": true
+    },
+    {
+      "capture": "3840x2160 yuvs 18",
+      "log": "capture-2160-scaling-restored.log",
+      "delivered_fps_ema": 18.0,
+      "render_fps": 18.02,
+      "presented": 363,
+      "dropped": 2,
+      "full_frame_confirmed_via_cua": true
+    },
+    {
+      "capture": "2560x1440 yuvs 50",
+      "log": "capture-1440-50-scaling-restored.log",
+      "delivered_fps_ema": 32.29,
+      "render_fps": 31.53,
+      "presented": 649,
+      "dropped": 279,
+      "note": "Not stable at nominal 50fps; keep 30fps default."
+    }
+  ],
+  "left_running_mode": "2560x1440 yuvs 30, interpolation/enhancements off"
+}

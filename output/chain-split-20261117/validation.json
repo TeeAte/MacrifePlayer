@@ -1,0 +1,52 @@
+{
+  "status": "independent_pipelines_and_settings_verified",
+  "menus": [
+    "视频 → 视频补帧设置…",
+    "采集卡 → 采集卡补帧设置…",
+    "采集卡 → 采集设备与输入格式…"
+  ],
+  "video_only": [
+    "反交错"
+  ],
+  "capture_only": [
+    "极限/平衡延迟策略",
+    "主机30FPS/假60模式",
+    "采集设备、USB模式、色彩范围和矩阵"
+  ],
+  "independent_profiles": [
+    "补帧后端/模型",
+    "倍率/目标FPS/自定义FPS",
+    "推理分辨率",
+    "数值精度",
+    "RIFE保护阈值",
+    "HDR"
+  ],
+  "pipeline_isolation": [
+    "模型会话及前帧历史",
+    "CoreML引擎实例",
+    "YUVS转换器",
+    "解码帧率/采集内容帧率上下文",
+    "播放时钟"
+  ],
+  "withdrawn": [
+    "Apple/MetalFX自定义源图重建",
+    "静止/HUD源像素替换"
+  ],
+  "tests": {
+    "configuration_groups": 10,
+    "capture_context_cases": 18,
+    "apple": "PASS: actual generated midpoint motion, original identity, file24→48 and capture30→60 independent histories",
+    "rifemetal": "PASS: true generated frames, original identity, source1920×1080 / flow256×192, static fine-detail MAE1.974/255 without replacement",
+    "ui": "Menus visibly present; Video has no live latency/host30 controls, Capture has them; input-format button opens capture device window; RIFE-only protection hidden for Apple"
+  },
+  "runtime_short_checks": {
+    "video_file": "24FPS → 48FPS measured",
+    "capture": "1080p60 YUVS transport, content30 → AI60; 58.17FPS rendered, 594 generated frames; app latency about34.5ms excluding device/display",
+    "scope": "Local short runs; does not establish sustained performance for every game/backend"
+  },
+  "quality_limit": "Apple/MetalFX lower-resolution system-generated middle frames can still be softer. Source reconstruction removed after user feedback of weakened interpolation.",
+  "build": "Release macOS arm64 BUILD SUCCEEDED",
+  "signature": "codesign --verify --deep --strict passed",
+  "diff_check": "git diff --check passed",
+  "final_ui_note": "Menu and both fixed settings panels visually verified before the final custom-FPS/legacy-latency normalization change. The Mac then locked, preventing a final foreground reopening; final build and configuration tests passed."
+}

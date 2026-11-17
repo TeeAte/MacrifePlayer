@@ -1,0 +1,11 @@
+2026-11-16 23:18:51.723 apple-interpolation-tests[21585:4634609] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-16 23:18:52.212 apple-interpolation-tests[21585:4634609] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+2026-11-16 23:18:52.704 apple-interpolation-tests[21585:4634609] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+Apple 1280x720 补帧 → 1920x1080 · 处理均耗 12.9 ms · 原图运动补偿细节
+PASS: Apple native 1080p source → 720p AI → 1080p output; mean 12.26 ms, p95 14.51 ms (downscale + AI + upscale, 30 samples)
+PASS: 1080p60 capture / console30 → actual AI60; 35 original + 34 AI frames, correct first-copy PTS and 60Hz spacing
+HUD (video-range) static fine-stroke MAE 0.000 / 255; moving ROI difference 4126125
+2026-11-16 23:18:52.842 apple-interpolation-tests[21585:4634609] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+HUD (full-range) static fine-stroke MAE 0.449 / 255; moving ROI difference 3595804
+2026-11-16 23:18:52.971 apple-interpolation-tests[21585:4634609] [AppleInterpolation] 会话就绪: 1280x720 → 1920x1080（原帧保留）
+HUD over moving background: stationary stroke error 0.534 / 255

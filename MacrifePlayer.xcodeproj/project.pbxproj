@@ -296,6 +296,8 @@
 		A1F4C1012D8C0101000000B4 /* MetalFXCaptureInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */; };
 		B2F4C1012D8C0101000000B5 /* RifeMetalFastInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */; };
 		B2F4C1032D8C0101000000B5 /* RifeMetal in Frameworks */ = {isa = PBXBuildFile; productRef = B2F4C1042D8C0101000000B5 /* RifeMetal */; };
+		C3F4C1012D8C0101000000B6 /* Packed422GPUConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3F4C1022D8C0101000000B6 /* Packed422GPUConverter.swift */; };
+		DDA7110A2026111700010001 /* FrameInterpolationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA7110A2026111700010002 /* FrameInterpolationPipeline.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -670,6 +672,8 @@
 		A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleLowLatencyInterpolator.swift; sourceTree = "<group>"; };
 		A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalFXCaptureInterpolator.swift; sourceTree = "<group>"; };
 		B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RifeMetalFastInterpolator.swift; sourceTree = "<group>"; };
+		C3F4C1022D8C0101000000B6 /* Packed422GPUConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packed422GPUConverter.swift; sourceTree = "<group>"; };
+		DDA7110A2026111700010002 /* FrameInterpolationPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameInterpolationPipeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1033,6 +1037,8 @@
 				A1F4C1022D8C0101000000B3 /* AppleLowLatencyInterpolator.swift */,
 				A1F4C1022D8C0101000000B4 /* MetalFXCaptureInterpolator.swift */,
 				B2F4C1022D8C0101000000B5 /* RifeMetalFastInterpolator.swift */,
+				DDA7110A2026111700010002 /* FrameInterpolationPipeline.swift */,
+				C3F4C1022D8C0101000000B6 /* Packed422GPUConverter.swift */,
 				39DD7B8C2D5521DFEBD514B0 /* PipelinePrimitives.swift */,
 				386A4DCF0250608F4B4295C5 /* PlaybackEngine.swift */,
 				A1F4D0022D8C010100000001 /* ModelPackageManager.swift */,
@@ -1473,6 +1479,8 @@
 				A1F4C1012D8C0101000000B3 /* AppleLowLatencyInterpolator.swift in Sources */,
 				A1F4C1012D8C0101000000B4 /* MetalFXCaptureInterpolator.swift in Sources */,
 				B2F4C1012D8C0101000000B5 /* RifeMetalFastInterpolator.swift in Sources */,
+				DDA7110A2026111700010001 /* FrameInterpolationPipeline.swift in Sources */,
+				C3F4C1012D8C0101000000B6 /* Packed422GPUConverter.swift in Sources */,
 				D29EF87D172FE61B4FBD88F8 /* PipelinePrimitives.swift in Sources */,
 				96C355A470526C1132B8568D /* PlaybackEngine.swift in Sources */,
 				6DBF7102AD64F4C27184B475 /* PlaybackStats.swift in Sources */,

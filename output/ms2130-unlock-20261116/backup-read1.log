@@ -1,0 +1,7 @@
+usb_claim_interface error -3 - use udev rule or run as root
+MS213x flasher for MacroSilicon/Ultrasemi MS2130, MS2130S, MS2131 and MS2131S USB 3 HDMI capture sticks
+https://github.com/steve-m/ms213x_flash - version 0.10
+run with -h for help/usage
+
+Found MS2130 via libusb
+Detaching HID Kernel driver

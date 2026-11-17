@@ -66,7 +66,7 @@ final class RifeMetalFastInterpolator {
             generated += count
             if count > 0 { elapsed += CACurrentMediaTime() - start }
             active = true
-            status = "RifeMetal Fast · RIFE 4.25 FP16 · 输入 \(session.width)×\(session.height) · 光流 \(session.flowWidth)×\(session.flowHeight)"
+            status = "RifeMetal Fast · RIFE 4.25 FP16 · 原尺寸合成 \(session.width)×\(session.height) · 光流 \(session.flowWidth)×\(session.flowHeight)"
             status += count > 0 ? String(format: " · 处理均耗 %.1f ms", elapsed * 1000 / Double(generated)) : " · 首帧缓存就绪"
             statsLock.unlock()
             return frames
@@ -88,9 +88,9 @@ final class RifeMetalFastInterpolator {
 private final class RifeMetalFastSession {
     let width: Int
     let height: Int
-    // Upstream fast pads input to multiples of 256 before quarter-scale IFNet.
-    var flowWidth: Int { ((width + 255) / 256 * 256) / 4 }
-    var flowHeight: Int { ((height + 255) / 256 * 256) / 4 }
+    private let inferenceDivisor: Int
+    var flowWidth: Int { ((width + 64 * inferenceDivisor - 1) / (64 * inferenceDivisor)) * 64 }
+    var flowHeight: Int { ((height + 64 * inferenceDivisor - 1) / (64 * inferenceDivisor)) * 64 }
     private let stream: RifeStream
     private let inputPool: CVPixelBufferPool
     private let middlePool: CVPixelBufferPool
@@ -101,9 +101,10 @@ private final class RifeMetalFastSession {
 
     init(sourceWidth: Int, sourceHeight: Int, maxInputHeight: Int, colorSpaceCode: Int32) throws {
         let size = InferenceGeometry.fit(sourceWidth: sourceWidth, sourceHeight: sourceHeight, maxHeight: maxInputHeight)
-        width = size.width; height = size.height
-        inputPool = try Self.pool(width: size.width, height: size.height, format: kCVPixelFormatType_32BGRA)
-        middlePool = try Self.pool(width: size.width, height: size.height, format: kCVPixelFormatType_32BGRA)
+        width = sourceWidth; height = sourceHeight
+        inferenceDivisor = min(16, max(4, Int(ceil(4.0 * Double(sourceHeight) / Double(size.height)))))
+        inputPool = try Self.pool(width: sourceWidth, height: sourceHeight, format: kCVPixelFormatType_32BGRA)
+        middlePool = try Self.pool(width: sourceWidth, height: sourceHeight, format: kCVPixelFormatType_32BGRA)
         outputPool = try Self.pool(width: sourceWidth, height: sourceHeight,
                                   format: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
         // Resolve the embedded resources without the upstream bundled URL's
@@ -115,9 +116,10 @@ private final class RifeMetalFastSession {
               kernels.url(forResource: "default", withExtension: "metallib") != nil else {
             throw Failure.unavailable("缺少内置 RIFE 4.25 权重或 Metal 内核")
         }
-        let configuration = RifeConfiguration(modelURL: modelURL, qualityTier: .fast)
+        let configuration = RifeConfiguration(modelURL: modelURL, qualityTier: .fast,
+                                              inferenceDivisor: inferenceDivisor)
         let interpolator = try RifeInterpolator(configuration: configuration)
-        stream = try interpolator.makeStream(width: size.width, height: size.height)
+        stream = try interpolator.makeStream(width: sourceWidth, height: sourceHeight)
         let input = try Self.transfer()
         do {
             let output = try Self.transfer()

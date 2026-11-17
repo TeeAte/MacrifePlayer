@@ -562,7 +562,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
 
         // ── 打包 4:2:2（YUY2 / 'yuvs'）──
         //
-        // 采集卡原生 4:2:2 的色度**不横向减半**，比 420v（4:2:0）多一倍彩色细节。
+        // 采集卡原生 4:2:2 的色度**不纵向减半**，比 420v（4:2:0）多一倍彩色细节。
         // 整块缓冲按 rg8Unorm 映射：每纹素 2 字节，纹素 i = (Y_i, U) 或 (Y_i, V)。
         // 实测：CVMetalTextureCache 对该格式建 rg8Unorm 纹理 rc=0 成功。
         //
@@ -570,12 +570,11 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
         // 需要另一套映射 —— 没有实测样本，不放进来（见 isRenderablePixelFormat 的注释）。
         if fmt == kCVPixelFormatType_422YpCbCr8_yuvs {
             let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-            let texW = bytesPerRow / 2
-            guard texW > 0, let cache = textureCache else { return }
+            guard bytesPerRow >= width * 2 else { return }
             var packedRefOut: CVMetalTexture?
             let rc = CVMetalTextureCacheCreateTextureFromImage(
                 kCFAllocatorDefault, cache, pixelBuffer, nil,
-                .rg8Unorm, texW, height, 0, &packedRefOut)
+                .rg8Unorm, width, height, 0, &packedRefOut)
             guard rc == kCVReturnSuccess, let ref = packedRefOut,
                   let tex = CVMetalTextureGetTexture(ref) else {
                 Self.log("打包 4:2:2 纹理创建失败: rc=\(rc)")
@@ -587,7 +586,7 @@ final class VideoRenderView: MTKView, MTKViewDelegate {
             packedTexture = tex
             isPacked422 = true
             heldPixelBuffer = pixelBuffer
-            // params.z = 源像素宽度（行有对齐填充时 ≠ 纹理宽度，着色器靠它算 x）
+            // params.z = 源像素宽度；行对齐由 CoreVideo 的纹理映射处理。
             colorParams = SIMD4<Float>(Float(frame.colorSpaceCode),
                                        frame.isFullRange ? 1.0 : 0.0,
                                        Float(width), 0)

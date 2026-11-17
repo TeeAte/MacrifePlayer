@@ -447,7 +447,7 @@ final class StatsPanelView: NSView {
         setHeading(outputHeading, "② 补帧后（输出）")
         let s = PlaybackSettings.shared
 
-        let sourceFPS = d.video?.frameRate ?? 0
+        let sourceFPS = stats.interpolationSourceFPS > 0 ? stats.interpolationSourceFPS : (d.video?.frameRate ?? 0)
         let targetFPS = Self.targetFrameRate(source: sourceFPS, mode: s.rifeRateMode)
 
         // 输出分辨率：MetalFX 空间超分辨率
@@ -483,9 +483,9 @@ final class StatsPanelView: NSView {
             let modeLabel = s.interpolationBackend != .rifeCoreML ? targetText : s.rifeRateMode.statusTitle
             lines.append("补帧  \(modeLabel) (\(familyName))  ·  目标 \(targetText)\(actualFPS)")
             if s.interpolationBackend != .rifeCoreML {
-                lines.append("模型  " + s.interpolationBackend.shortTitle + " 系统补帧 · 原始帧保持源画质")
+                lines.append("模型  " + s.interpolationBackend.shortTitle + " · 原帧保持源画质")
                 if s.interpolationBackend == .metalFX { lines.append("实验  估算光流 / 平面深度 · 性能未验证") }
-                lines.append("推理上限  " + s.interpolationFlowResolution.title + " · 数值精度由系统管理")
+                lines.append("推理预算  " + s.interpolationFlowResolution.title + " · " + s.computePrecisionDescription)
                 lines.append("处理  " + stats.rifeStatusText)
             } else {
                 lines.append("模型  " + (s.interpolationBackend == .rifeCoreML ? s.rifeModel.title : "Apple 系统模型") + " · 光流 " + s.interpolationFlowResolution.title)
@@ -498,7 +498,10 @@ final class StatsPanelView: NSView {
             let countSuffix = stats.rifeInterpolatedFrames > 0 ? "（已插帧 \(stats.rifeInterpolatedFrames) 帧）" : "（插帧管线就绪）"
             lines.append("输出  \(resLine)  \(countSuffix)")
             lines.append(enhanceLine)
-            if stats.videoDecoderName.isEmpty {
+            if d.container.formatName.contains("采集卡") {
+                let pixel = d.video?.pixelFormat ?? "原生像素"
+                lines.append("采集  \(pixel) · Metal GPU处理（未压缩，无需解码）")
+            } else if stats.videoDecoderName.isEmpty {
                 lines.append("解码  \(s.decodeMode.title)")
             } else if stats.isHardwareDecode {
                 lines.append("解码  硬解（VideoToolbox · \(stats.videoDecoderName)）")
@@ -537,7 +540,10 @@ final class StatsPanelView: NSView {
                                 s.rifeStaticFrameSkip ? "开" : "关"))
             lines.append("输出  \(resLine)")
             lines.append(enhanceLine)
-            if stats.videoDecoderName.isEmpty {
+            if d.container.formatName.contains("采集卡") {
+                let pixel = d.video?.pixelFormat ?? "原生像素"
+                lines.append("采集  \(pixel) · Metal GPU处理（未压缩，无需解码）")
+            } else if stats.videoDecoderName.isEmpty {
                 lines.append("解码  \(s.decodeMode.title)")
             } else if stats.isHardwareDecode {
                 lines.append("解码  硬解（VideoToolbox · \(stats.videoDecoderName)）")

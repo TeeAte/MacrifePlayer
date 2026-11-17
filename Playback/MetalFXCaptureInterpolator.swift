@@ -74,7 +74,7 @@ final class MetalFXCaptureInterpolator {
             active = true
             status = String(format: "MetalFX 实验性 %dx%d · 估算光流 / 平面深度", session.width, session.height)
             if generated > 0 { status += String(format: " · 处理均耗 %.1f ms", processingSeconds * 1000 / Double(generated)) }
-            if session.hudProtectionActive { status += " · HUD文字保护" }
+            if session.hudProtectionActive { status += " · 模型真实中间帧" }
             statsLock.unlock()
             return frames
         } catch {
@@ -112,6 +112,7 @@ private final class MetalFXCaptureSession {
     private let outputPool: CVPixelBufferPool
     private let transfer: VTPixelTransferSession
     private let colorSpaceCode: Int32
+    private let packedConverter = Packed422GPUConverter()
     private var previous: (frame: DecodedVideoFrame, small: CVPixelBuffer, color: MTLTexture)?
     private var resetHistory = true
     private(set) var hudProtectionActive = false
@@ -174,20 +175,22 @@ private final class MetalFXCaptureSession {
 
     func discardPreviousFrame() {
         previous = nil; resetHistory = true; hudProtectionActive = false
-        resizer.resetDetailHistory()
+
     }
 
     func interpolate(_ frame: DecodedVideoFrame) throws -> [DecodedVideoFrame] {
+        let detail = CVPixelBufferGetPixelFormatType(frame.pixelBuffer) == kCVPixelFormatType_422YpCbCr8_yuvs
+            ? try packedConverter.convert(frame.pixelBuffer, fullRange: frame.isFullRange) : frame.pixelBuffer
         let small = try Self.buffer(sourcePool)
         let color = try Self.texture(device, format: .rgba16Float, width: width, height: height,
                                      usage: effect.colorTextureUsage.union([.shaderRead, .shaderWrite]))
-        let format = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
+        let format = CVPixelBufferGetPixelFormatType(detail)
         let nv12 = format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             || format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         let prepare = try resizer.makeCommandBuffer()
         var references: [CVMetalTexture] = []
         if nv12 {
-            references += try resizer.encodeResize(frame.pixelBuffer, to: small,
+            references += try resizer.encodeResize(detail, to: small,
                 fullRange: frame.isFullRange, command: prepare)
         } else {
             try Self.check(VTPixelTransferSessionTransferImage(transfer, from: frame.pixelBuffer, to: small))
@@ -256,9 +259,8 @@ private final class MetalFXCaptureSession {
         restore.setBytes(&matrix, length: MemoryLayout<Int32>.size, index: 0)
         dispatch(restore, width: width, height: height)
         restore.endEncoding()
-        references += try resizer.encodeResize(intermediate, to: output, fullRange: false, command: command,
-            preserving: (prior.frame.pixelBuffer, frame.pixelBuffer, frame.isFullRange))
-        try withExtendedLifetime((flow, motionInput, intermediate, prior, frame, small, color, output)) {
+        references += try resizer.encodeResize(intermediate, to: output, fullRange: false, command: command)
+        try withExtendedLifetime((flow, motionInput, intermediate, prior, frame, detail, small, color, output)) {
             try resizer.finish(command, retaining: references)
         }
         for key in [kCVImageBufferYCbCrMatrixKey, kCVImageBufferColorPrimariesKey, kCVImageBufferTransferFunctionKey] {
@@ -266,7 +268,7 @@ private final class MetalFXCaptureSession {
         }
         previous = (frame, small, color)
         resetHistory = false
-        hudProtectionActive = nv12 && CVPixelBufferIsPlanar(prior.frame.pixelBuffer)
+        hudProtectionActive = false
         let middle = DecodedVideoFrame(pixelBuffer: output, pts: (prior.frame.pts + frame.pts) * 0.5,
             isBT709: frame.isBT709, colorSpaceCode: frame.colorSpaceCode, isFullRange: false, isInterpolated: true)
         return [middle, frame]

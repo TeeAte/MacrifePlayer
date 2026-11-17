@@ -21,6 +21,7 @@ extension Notification.Name {
     ///
     /// 监听方一般不需要看 key（重读一遍很便宜），但日志与调试需要。
     static let playbackSettingsDidChange = Notification.Name("MPPlaybackSettingsDidChange")
+    static let playbackInputProfileDidChange = Notification.Name("MPPlaybackInputProfileDidChange")
 }
 
 // MARK: - 补帧模式（控制条按钮上的那条）
@@ -57,13 +58,15 @@ enum Fake60OptimizationMode: String, CaseIterable {
 enum CaptureLowLatencyMode: String, CaseIterable {
     case extreme   // 极限电竞：最新输入，最多 2 对在途，保留 AI 补帧
     case balanced  // 平衡抗抖动：2 帧输入，最多 3 对在途
-    case off       // 标准缓冲（普通回放模式）
+    case off       // 兼容旧偏好，实时采集统一使用平衡策略
+
+    static let allCases: [CaptureLowLatencyMode] = [.extreme, .balanced]
 
     var title: String {
         switch self {
         case .extreme:  return "极限电竞 (优先跟手 · 保留 AI 补帧)"
         case .balanced: return "平衡抗抖动 (少量缓冲 · 保留 AI 补帧)"
-        case .off:      return "标准缓冲 (普通回放模式)"
+        case .off:      return "平衡抗抖动 (兼容旧设置)"
         }
     }
 }
@@ -311,9 +314,80 @@ enum DecodeMode: String, CaseIterable {
 
 // MARK: - 设置本体
 
+/// Video-file preferences retain the existing keys. Capture gets a one-time
+/// copy and its own namespace; subsequent edits cannot bleed between sources.
+private final class ProfiledPlaybackDefaults {
+    private let store: UserDefaults
+    private let lock = NSLock()
+    private var kind: PlaybackInputKind
+    var inputKind: PlaybackInputKind { lock.lock(); defer { lock.unlock() }; return kind }
+
+    init(_ store: UserDefaults, inputKind: PlaybackInputKind) {
+        self.store = store; self.kind = inputKind
+        if inputKind == .captureCard { initializeCaptureProfile() }
+    }
+
+    static func isInterpolationKey(_ key: String) -> Bool {
+        key.hasPrefix("macrife.rife") || key.hasPrefix("macrife.interpolation")
+            || key == "macrife.hdrToneMapping" || key == "macrife.deinterlaceMode"
+    }
+
+    private func captureKey(_ key: String) -> String { "macrife.capture." + key.dropFirst("macrife.".count) }
+    private static let migrationLock = NSLock()
+    private func initializeCaptureProfile() {
+        Self.migrationLock.lock(); defer { Self.migrationLock.unlock() }
+        let marker = "macrife.capture.interpolationProfileInitialized.v2"
+        guard !store.bool(forKey: marker) else { return }
+        let keys = Set(PlaybackSettings.Key.allCases.map(\.rawValue)
+            + store.dictionaryRepresentation().keys.filter { Self.isInterpolationKey($0) })
+        for key in keys where Self.isInterpolationKey(key) {
+            if let value = store.object(forKey: key), store.object(forKey: captureKey(key)) == nil {
+                store.set(value, forKey: captureKey(key))
+            }
+        }
+        store.set(true, forKey: marker)
+    }
+
+    func selectInput(_ kind: PlaybackInputKind) {
+        if kind == .captureCard { initializeCaptureProfile() }
+        lock.lock(); self.kind = kind; lock.unlock()
+    }
+    private func key(_ key: String) -> String {
+        inputKind == .captureCard && Self.isInterpolationKey(key) ? captureKey(key) : key
+    }
+    func object(forKey k: String) -> Any? { store.object(forKey: key(k)) }
+    func string(forKey k: String) -> String? { store.string(forKey: key(k)) }
+    func stringArray(forKey k: String) -> [String]? { store.stringArray(forKey: key(k)) }
+    func bool(forKey k: String) -> Bool { store.bool(forKey: key(k)) }
+    func integer(forKey k: String) -> Int { store.integer(forKey: key(k)) }
+    func double(forKey k: String) -> Double { store.double(forKey: key(k)) }
+    func float(forKey k: String) -> Float { store.float(forKey: key(k)) }
+    func set(_ value: Any?, forKey k: String) { store.set(value, forKey: key(k)) }
+    func removeObject(forKey k: String) { store.removeObject(forKey: key(k)) }
+}
+
 final class PlaybackSettings {
 
     static let shared = PlaybackSettings()
+    private static let fileSettings = PlaybackSettings(inputKind: .videoFile)
+    private static let captureSettings = PlaybackSettings(inputKind: .captureCard)
+
+    static func forInput(_ kind: PlaybackInputKind) -> PlaybackSettings {
+        kind == .videoFile ? fileSettings : captureSettings
+    }
+
+    var inputKind: PlaybackInputKind { defaults.inputKind }
+    private let fixedInputKind: PlaybackInputKind?
+
+    /// UI follows the opened source; processing instances remain bound to
+    /// their own profile, including asynchronous model initialization.
+    func selectInput(_ kind: PlaybackInputKind) {
+        guard fixedInputKind == nil, inputKind != kind else { return }
+        defaults.selectInput(kind)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .playbackInputProfileDidChange, object: self)
+        }
+    }
 
     /// UserDefaults 的 key，前缀统一 `macrife.`。
     enum Key: String, CaseIterable {
@@ -452,10 +526,11 @@ final class PlaybackSettings {
         }
     }
 
-    private let defaults: UserDefaults
+    private let defaults: ProfiledPlaybackDefaults
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    init(defaults: UserDefaults = .standard, inputKind: PlaybackInputKind? = nil) {
+        fixedInputKind = inputKind
+        self.defaults = ProfiledPlaybackDefaults(defaults, inputKind: inputKind ?? .videoFile)
         // 保留旧Apple选择，迁移到独立后端；RIFE权重作为独立的回退配置。
         if defaults.string(forKey: Key.rifeModel.rawValue) == "appleLowLatency" {
             if defaults.object(forKey: Key.interpolationBackend.rawValue) == nil {
@@ -662,6 +737,18 @@ final class PlaybackSettings {
         }
     }
 
+    /// Processing uses the source's fixed profile, including custom targets.
+    func interpolationTargetFrameRate(source: Double) -> Double {
+        guard source > 0 else { return 0 }
+        switch rifeRateMode {
+        case .off: return source
+        case .fps60: return 60
+        case .fps120: return 120
+        case .customFps: return rifeCustomTargetFps
+        default: return source * Double(rifeRateMode.multiplier ?? 1)
+        }
+    }
+
     /// 计算精度 (FP16 / FP32)。
     var rifePrecision: RIFEComputePrecision {
         get {
@@ -738,8 +825,11 @@ final class PlaybackSettings {
     }
 
     var captureLowLatencyMode: CaptureLowLatencyMode {
-        get { enumValue(Key.captureLowLatencyMode, default: .balanced) }
-        set { setEnum(Key.captureLowLatencyMode, newValue) }
+        get {
+            let mode: CaptureLowLatencyMode = enumValue(Key.captureLowLatencyMode, default: .balanced)
+            return mode == .off ? .balanced : mode
+        }
+        set { setEnum(Key.captureLowLatencyMode, newValue == .off ? .balanced : newValue) }
     }
 
     /// 采集输入色彩范围。默认「自动」= 读采集卡上报。
@@ -788,9 +878,13 @@ final class PlaybackSettings {
         rifeFlowSmoothness = 1.0
         rifeLargeMotionAssist = true
         rifePyramidStages = 3
-        deinterlaceMode = .auto
-        fake60FPSOptimization = .off
-        captureLowLatencyMode = .balanced
+        hdrToneMapping = .auto
+        if inputKind == .videoFile {
+            deinterlaceMode = .auto
+        } else {
+            fake60FPSOptimization = .off
+            captureLowLatencyMode = .balanced
+        }
     }
 
     // MARK: 其它档位

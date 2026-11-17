@@ -1,0 +1,28 @@
+{
+  "status": "verified_live",
+  "backend": "rifeMetalFast",
+  "capture": "1920x1080 yuvs 60 fps",
+  "rate_mode": "x2",
+  "target_fps": 120,
+  "inference_input_limit": "720p",
+  "output_size": "1920x1080",
+  "original_frame_resolution_preserved": true,
+  "initial_1080p_inference": {
+    "render_fps_observed_range": [
+      50.7,
+      66.0
+    ],
+    "processing_ms_approximately": 20.0
+  },
+  "720p_inference": {
+    "render_fps_observed": 117.9,
+    "generated_frames_counter": 5570,
+    "application_latency_ms": 29.9,
+    "recent_latency_p50_ms": 29.1,
+    "recent_latency_p95_ms": 32.8,
+    "observation_source": "CUA actual Player performance overlay"
+  },
+  "switching": "UI model-menu toggle OFF and ON both changed effective interpolation state; no UserDefaults command-line overrides in final launch",
+  "prior_test_process_issue": "Previous handoff command included -macrife.rifeRateMode off, which overrides UI writes for that process. Final process launched without forced preference arguments.",
+  "software_changes_this_followup": "No playback implementation change; restarted normally and changed RifeMetal inference cap through existing UI."
+}

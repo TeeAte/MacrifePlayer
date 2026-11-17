@@ -55,6 +55,8 @@ struct PlaybackCounters {
     /// RIFE AI 补帧活跃状态与插帧计数
     var rifeActive = false
     var rifeInterpolatedFrames = 0
+    var interpolationSourceFPS = 0.0
+    var interpolationTargetFPS = 0.0
     var rifeStatusText = "待命"
     /// MetalFX 空间超分辨率
     var metalFXActive = false
@@ -96,6 +98,8 @@ struct PlaybackRuntimeStats {
     var videoDecoderName = ""
     var rifeActive = false
     var rifeInterpolatedFrames = 0
+    var interpolationSourceFPS = 0.0
+    var interpolationTargetFPS = 0.0
     var rifeStatusText = "待命"
     var metalFXActive = false
     var metalFXStatusText = "MetalFX 关闭"
@@ -157,6 +161,8 @@ final class StatsSampler {
         out.videoDecoderName = counters.videoDecoderName
         out.rifeActive = counters.rifeActive
         out.rifeInterpolatedFrames = counters.rifeInterpolatedFrames
+        out.interpolationSourceFPS = counters.interpolationSourceFPS
+        out.interpolationTargetFPS = counters.interpolationTargetFPS
         out.rifeStatusText = counters.rifeStatusText
         out.metalFXActive = counters.metalFXActive
         out.metalFXStatusText = counters.metalFXStatusText

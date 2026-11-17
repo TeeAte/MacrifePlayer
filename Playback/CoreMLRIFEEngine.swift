@@ -93,7 +93,7 @@ final class CoreMLRIFEEngine {
     private var pendingConfig: String?
     private let initQueue = DispatchQueue(label: "com.macrife.coremlrife.init", qos: .userInitiated)
 
-    private init() {}
+    init() {}
 
     /// 内存排查遥测：各引擎实例的池缓冲取用次数、转换次数，以及**取到手的是
     /// 新 IOSurface 还是回收复用的旧缓冲**。
@@ -233,16 +233,6 @@ final class CoreMLRIFEEngine {
     /// 对象身份为键，seek 后新缓冲自然 miss；这里清掉残余引用防串帧。
     func reset() {
         lock.lock(); engines.forEach { $0.resetPairState() }; lock.unlock()
-    }
-
-    /// 打包 4:2:2（YUY2）→ NV12：让采集卡也能进真·RIFE 链路。
-    /// 引擎尚未就绪（模型加载期）返回 nil，调用方回落到直通并提示一次。
-    func convertPacked422ToNV12(_ pb: CVPixelBuffer) -> CVPixelBuffer? {
-        lock.lock()
-        let eng = engines.first
-        lock.unlock()
-        guard let eng else { return nil }
-        return eng.convertPacked422ToNV12(from: pb)
     }
 
     // MARK: 成对插值接口（多 worker 并行的执行单元）
@@ -547,12 +537,6 @@ private final class Engine: @unchecked Sendable {
         var is10Bit: UInt32 = 0      // 0 = 8-bit, 1 = 10-bit
     }
 
-    /// 与 Metal 端 `YUY2ConvParams` 完全同布局（4 × UInt32 = 16 字节）。
-    private struct YUY2ConvParams {
-        var width: UInt32 = 0; var height: UInt32 = 0
-        var yStride: UInt32 = 0; var uvStride: UInt32 = 0
-    }
-
     init(modelVariant: String, sourceWidth: Int, sourceHeight: Int,
          fullRange: Bool, colorSpaceCode: Int32, is10Bit: Bool) throws {
         guard let dev = MTLCreateSystemDefaultDevice(),
@@ -639,8 +623,7 @@ private final class Engine: @unchecked Sendable {
         let library = try dev.makeLibrary(source: Self.metalSource, options: nil)
         for fn in ["warp_nchw", "concat_multi", "copy_nchw", "blend_nchw", "add_nchw",
                    "resize_nchw", "flow_upscale_nchw",
-                   "nv12_to_rgb_nchw", "rgb_nchw_to_nv12_y", "rgb_nchw_to_nv12_uv",
-                   "yuy2_to_nv12"] {
+                   "nv12_to_rgb_nchw", "rgb_nchw_to_nv12_y", "rgb_nchw_to_nv12_uv"] {
             guard let f = library.makeFunction(name: fn) else {
                 throw EngineError.kernel(fn)
             }
@@ -1342,63 +1325,6 @@ private final class Engine: @unchecked Sendable {
         return dst
     }
 
-    /// 打包 4:2:2（YUY2 / 'yuvs'）→ 双平面 NV12：让采集卡也能进补帧链路。
-    ///
-    /// 源按 rg8Unorm 纹理映射（宽=像素宽、高=像素高），偶数像素的 .g = U、
-    /// 奇数像素的 .g = V；Y 逐像素拷贝，UV 按 2×2 块做 4:2:2→4:2:0 纵向平均。
-    /// 字节原样搬运、不碰色彩范围，色偏由下游 isFullRange / isBT709 统一处理。
-    /// 尺寸须与引擎配置一致（采集分辨率固定，引擎按该分辨率预热），否则回落 nil。
-    func convertPacked422ToNV12(from src: CVPixelBuffer) -> CVPixelBuffer? {
-        let w = CVPixelBufferGetWidth(src)
-        let h = CVPixelBufferGetHeight(src)
-        guard w == srcW, h == srcH else { return nil }
-        guard let pso = pipes["yuy2_to_nv12"], let cache = textureCache else { return nil }
-        ensurePool()
-        guard let pool = pool else { return nil }
-
-        var texRef: CVMetalTexture?
-        guard CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, src, nil,
-                                                       .rg8Unorm, w, h, 0, &texRef) == kCVReturnSuccess,
-              let tex = CVMetalTextureGetTexture(texRef!) else { return nil }
-
-        var dstPB: CVPixelBuffer?
-        poolLock.lock()
-        let rc = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &dstPB)
-        poolLock.unlock()
-        guard rc == kCVReturnSuccess, let dst = dstPB else { return nil }
-        guard CVPixelBufferLockBaseAddress(dst, []) == kCVReturnSuccess else { return nil }
-        defer { CVPixelBufferUnlockBaseAddress(dst, []) }
-        guard let yBase = CVPixelBufferGetBaseAddressOfPlane(dst, 0),
-              let uvBase = CVPixelBufferGetBaseAddressOfPlane(dst, 1) else { return nil }
-        let yStride = CVPixelBufferGetBytesPerRowOfPlane(dst, 0)
-        let uvStride = CVPixelBufferGetBytesPerRowOfPlane(dst, 1)
-        guard let yBuf = device.makeBuffer(bytesNoCopy: yBase, length: yStride * h,
-                                           options: .storageModeShared, deallocator: nil),
-              let uvBuf = device.makeBuffer(bytesNoCopy: uvBase, length: uvStride * (h / 2),
-                                           options: .storageModeShared, deallocator: nil) else { return nil }
-
-        var params = YUY2ConvParams(width: UInt32(w), height: UInt32(h),
-                                    yStride: UInt32(yStride), uvStride: UInt32(uvStride))
-        guard let cmd = queue.makeCommandBuffer(),
-              let enc = cmd.makeComputeCommandEncoder() else { return nil }
-        enc.setComputePipelineState(pso)
-        enc.setTexture(tex, index: 0)
-        enc.setBuffer(yBuf, offset: 0, index: 0)
-        enc.setBuffer(uvBuf, offset: 0, index: 1)
-        enc.setBytes(&params, length: MemoryLayout<YUY2ConvParams>.size, index: 2)
-        let grid = MTLSize(width: w, height: h, depth: 1)
-        let tg = MTLSize(width: min(pso.threadExecutionWidth, max(1, w)), height: 1, depth: 1)
-        enc.dispatchThreads(grid, threadsPerThreadgroup: tg)
-        enc.endEncoding()
-        cmd.commit()
-        cmd.waitUntilCompleted()
-        if let e = cmd.error {
-            NSLog("[CoreMLRIFE] yuy2_to_nv12 失败: %@", e.localizedDescription)
-            return nil
-        }
-        return dst
-    }
-
     /// 预热：跑一次 encode，触发 CoreML/ANE 编译，避免第一帧卡顿
     func warmup() {
         let n = 3 * modelH * modelW
@@ -1794,46 +1720,5 @@ private extension Engine {
         }
     }
 
-    // ===== 打包 4:2:2（YUY2 / 'yuvs'）→ 双平面 NV12 =====
-    //
-    // 让采集卡（原生输出 YUY2）也能进真·RIFE 链路：推理引擎按双平面 NV12 取纹理，
-    // 直接喂打包缓冲会拿到错误输入甚至失败。这里把 YUY2 解包成 NV12
-    //（Y 平面逐像素拷贝；UV 平面把 4:2:2 横向半采样按 2x2 块做 4:2:0 纵向平均）。
-    // 像素字节原样拷贝、不做色彩范围换算 —— 色彩范围/矩阵由下游 isFullRange /
-    // isBT709 统一处理，与源帧完全一致，不会引入色偏。
-
-    struct YUY2ConvParams {
-        uint width;
-        uint height;
-        uint yStride;
-        uint uvStride;
-    };
-
-    kernel void yuy2_to_nv12(texture2d<float, access::read> src [[texture(0)]],
-                             device uchar *yOut         [[buffer(0)]],
-                             device uchar *uvOut        [[buffer(1)]],
-                             constant YUY2ConvParams &p [[buffer(2)]],
-                             uint2 gid                  [[thread_position_in_grid]]) {
-        uint x = gid.x, y = gid.y;
-        if (x >= p.width || y >= p.height) return;
-        // 源映射为 rg8Unorm（宽=像素宽，高=像素高）：偶数 x 的 .g = U，奇数 x 的 .g = V
-        float4 s = src.read(uint2(x, y));
-        float Y = s.r;
-        yOut[y * p.yStride + x] = (uchar)(clamp(Y, 0.0f, 1.0f) * 255.0f + 0.5f);
-        if ((x & 1u) == 0u && (y & 1u) == 0u) {
-            float U = s.g;
-            float V = src.read(uint2(min(x + 1u, p.width - 1u), y)).g;
-            // 4:2:2 → 4:2:0：与下一行做纵向平均（仅当存在下一行）
-            if (y + 1u < p.height) {
-                float Ud = src.read(uint2(x, y + 1u)).g;
-                float Vd = src.read(uint2(min(x + 1u, p.width - 1u), y + 1u)).g;
-                U = (U + Ud) * 0.5f;
-                V = (V + Vd) * 0.5f;
-            }
-            uint uvIdx = (y / 2u) * p.uvStride + (x / 2u) * 2u;
-            uvOut[uvIdx]     = (uchar)(clamp(U, 0.0f, 1.0f) * 255.0f + 0.5f);
-            uvOut[uvIdx + 1] = (uchar)(clamp(V, 0.0f, 1.0f) * 255.0f + 0.5f);
-        }
-    }
     """ }
 }

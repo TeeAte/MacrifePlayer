@@ -1,0 +1,9 @@
+2026-11-16 22:20:48.752 Macrife Player[10889:4564142] [ModelPackageManager] 缓存模型包已就绪: /Users/teeate/Library/Application Support/MacrifePlayer/Models
+2026-11-16 22:20:51.227 Macrife Player[10889:4564117] [Capture] 启动 USB3 Video · 2560×1440 · 30.00 FPS · 锁定时长=1000000/30000030 · 音频=USB3 Digital Audio
+[PlaybackEngine] 采集请求: 2560×1440 · yuvs · 30.00003000003 fps
+[PlaybackEngine] 采集卡帧率已锁定(启动后修复): 目标 30.00 fps | 设备读回 30.00 fps | 连接读回 30.00 fps
+[PlaybackEngine] 采集启动后格式: 2560×1440 · 设备 yuvs · 输出 yuvs
+[PlaybackEngine] 采集色彩: BT.709 · 限制 16–235 · 来源=缓冲附件
+[PlaybackEngine] 采集实际样本: 2560×1440 · yuvs · Metal GPU 显示（未压缩，无需视频解码）
+[PlaybackEngine] 首帧上屏 pts=0.033s [采集低延迟 · AI补帧=false]
+[PlaybackEngine] 状态变迁: playing -> idle

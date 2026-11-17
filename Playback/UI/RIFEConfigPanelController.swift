@@ -67,7 +67,7 @@ final class PanelInfoBadgeView: NSView {
         label.font = .systemFont(ofSize: 11.5, weight: .medium)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 3
+        label.maximumNumberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
 
@@ -105,7 +105,16 @@ private final class InterpolationSettingsDocumentView: NSView {
 // MARK: - 主控制器
 final class RIFEConfigPanelController: NSWindowController {
 
-    static let shared = RIFEConfigPanelController()
+    private static let videoPanel = RIFEConfigPanelController(inputKind: .videoFile)
+    private static let capturePanel = RIFEConfigPanelController(inputKind: .captureCard)
+    static func forInput(_ kind: PlaybackInputKind) -> RIFEConfigPanelController {
+        kind == .videoFile ? videoPanel : capturePanel
+    }
+    static var shared: RIFEConfigPanelController { forInput(PlaybackSettings.shared.inputKind) }
+    private let inputKind: PlaybackInputKind
+    private let settings: PlaybackSettings
+    var onOpenCaptureDevice: (() -> Void)?
+
 
     // MARK: - 控件
 
@@ -121,6 +130,9 @@ final class RIFEConfigPanelController: NSWindowController {
     private var precisionRow: NSView?
     private let precisionInfoLabel = NSTextField(labelWithString: "")
     private let latencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let console30Popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let resolutionTip = NSTextField(wrappingLabelWithString: "")
+    private var protectionCard: NSView?
     private let precisionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelTipBadge = PanelInfoBadgeView()
 
@@ -154,7 +166,9 @@ final class RIFEConfigPanelController: NSWindowController {
 
     // MARK: - 初始化
 
-    private init() {
+    private init(inputKind: PlaybackInputKind) {
+        self.inputKind = inputKind
+        self.settings = PlaybackSettings.forInput(inputKind)
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 920),
             styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
@@ -180,6 +194,8 @@ final class RIFEConfigPanelController: NSWindowController {
             self, selector: #selector(handleSettingsChanged(_:)),
             name: .playbackSettingsDidChange, object: nil
         )
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSettingsChanged(_:)),
+            name: .playbackInputProfileDidChange, object: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -190,6 +206,7 @@ final class RIFEConfigPanelController: NSWindowController {
 
     func show(relativeTo parentWindow: NSWindow? = nil) {
         guard let window = self.window else { return }
+        window.title = settings.inputKind.title + "补帧 · 独立配置"
         loadFromSettings()
 
         if let parent = parentWindow, !window.isVisible {
@@ -356,7 +373,7 @@ final class RIFEConfigPanelController: NSWindowController {
         resPopup.target = self
         resPopup.action = #selector(onResolutionChanged(_:))
         resStack.addArrangedSubview(makeRow(label: "光流分辨率:", control: resPopup))
-        let resolutionTip = NSTextField(wrappingLabelWithString: "每个模型独立保存。分辨率越高，计算量越大；输出尺寸与目标帧率保持独立。")
+        resolutionTip.stringValue = "两类输入分别保存，每个后端独立记忆推理预算。"
         resolutionTip.font = .systemFont(ofSize: 11.5)
         resolutionTip.textColor = .secondaryLabelColor
         resStack.addArrangedSubview(resolutionTip)
@@ -369,7 +386,8 @@ final class RIFEConfigPanelController: NSWindowController {
         rootStack.addArrangedSubview(resCard.container)
         resCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
-        // 5. 卡片：调度策略与并发核心
+        if inputKind == .captureCard {
+        // Live-input controls belong only to the capture settings page.
         let perfCard = makeCardView(title: "采集延迟策略（所有补帧后端通用）")
         let perfStack = NSStackView()
         perfStack.orientation = .vertical
@@ -380,12 +398,19 @@ final class RIFEConfigPanelController: NSWindowController {
         latencyPopup.target = self
         latencyPopup.action = #selector(onLatencyChanged(_:))
         perfStack.addArrangedSubview(makeRow(label: "采集延迟:", control: latencyPopup))
-        let latencyTip = NSTextField(wrappingLabelWithString: "仅调整实时采集的队列与过载丢帧策略，独立于模型、光流分辨率和数值精度。文件播放使用自己的时序。")
+        console30Popup.addItems(withTitles: Fake60OptimizationMode.allCases.map(\.title))
+        console30Popup.target = self
+        console30Popup.action = #selector(onConsole30Changed(_:))
+        perfStack.addArrangedSubview(makeRow(label: "内容模式:", control: console30Popup))
+        let latencyTip = NSTextField(wrappingLabelWithString: "主机 30FPS / 假60 输入：需要 60FPS 采集，固定隔帧取样后由 AI 补到 60FPS。原生60FPS游戏选择原始输入。低延迟策略只影响采集卡。")
         latencyTip.font = .systemFont(ofSize: 11.5)
         latencyTip.textColor = .secondaryLabelColor
         perfStack.addArrangedSubview(latencyTip)
         latencyTip.widthAnchor.constraint(equalTo: perfStack.widthAnchor).isActive = true
         latencyTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let inputButton = NSButton(title: "采集设备与输入格式…", target: self, action: #selector(onOpenCaptureDevice(_:)))
+        perfStack.addArrangedSubview(inputButton)
 
         perfCard.contentView.addSubview(perfStack)
         perfStack.translatesAutoresizingMaskIntoConstraints = false
@@ -393,8 +418,11 @@ final class RIFEConfigPanelController: NSWindowController {
         rootStack.addArrangedSubview(perfCard.container)
         perfCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
+        }
+
         // 6. 卡片：智能保护与节能
-        let protCard = makeCardView(title: "智能保护与节能")
+        let protCard = makeCardView(title: "RIFE 转场与静帧保护")
+        protectionCard = protCard.container
         let protStack = NSStackView()
         protStack.orientation = .vertical
         protStack.alignment = .leading
@@ -428,39 +456,44 @@ final class RIFEConfigPanelController: NSWindowController {
         staticRow.addArrangedSubview(staticThresholdLabel)
         protStack.addArrangedSubview(staticRow)
 
-        // 隔行反交错 (针对摄像机 MTS / 50i / 60i 广播级视频)
-        deinterlacePopup.addItems(withTitles: DeinterlaceMode.allCases.map { $0.title })
-        deinterlacePopup.target = self
-        deinterlacePopup.action = #selector(onDeinterlaceModeChanged(_:))
-        let deintRow = makeRow(label: "隔行反交错:", control: deinterlacePopup)
-        protStack.addArrangedSubview(deintRow)
-
-        let deintTip = NSTextField(wrappingLabelWithString: "💡 识别 .mts/.m2ts 50i/60i 隔行视频，自适应双场拆解消除横向拉丝，直接输出 50/60 FPS。")
-        deintTip.font = .systemFont(ofSize: 11, weight: .regular)
-        deintTip.textColor = NSColor(white: 0.65, alpha: 1.0)
-        protStack.addArrangedSubview(deintTip)
-        deintTip.widthAnchor.constraint(equalTo: protStack.widthAnchor).isActive = true
-        deintTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        // HDR 转 SDR 色调映射 (针对 HDR10 / PQ / HLG 片源)
-        hdrToneMappingPopup.addItems(withTitles: HDRToneMappingMode.allCases.map { $0.title })
-        hdrToneMappingPopup.target = self
-        hdrToneMappingPopup.action = #selector(onHDRToneMappingChanged(_:))
-        let hdrRow = makeRow(label: "HDR 转 SDR:", control: hdrToneMappingPopup)
-        protStack.addArrangedSubview(hdrRow)
-
-        let hdrTip = NSTextField(wrappingLabelWithString: "💡 识别 HDR10 (PQ/BT.2020) 或 HLG 视频，在 GPU 上转为高质量 SDR 画面后再接入补帧引擎，杜绝画面发灰与光流失真。")
-        hdrTip.font = .systemFont(ofSize: 11, weight: .regular)
-        hdrTip.textColor = NSColor(white: 0.65, alpha: 1.0)
-        protStack.addArrangedSubview(hdrTip)
-        hdrTip.widthAnchor.constraint(equalTo: protStack.widthAnchor).isActive = true
-        hdrTip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
         protCard.contentView.addSubview(protStack)
         protStack.translatesAutoresizingMaskIntoConstraints = false
         pinToEdges(protStack, in: protCard.contentView)
         rootStack.addArrangedSubview(protCard.container)
         protCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
+
+        let processingCard = makeCardView(title: inputKind == .videoFile ? "视频文件处理" : "HDMI 色彩处理")
+        let processingStack = NSStackView()
+        processingStack.orientation = .vertical
+        processingStack.alignment = .leading
+        processingStack.spacing = 7
+        if inputKind == .videoFile {
+            deinterlacePopup.addItems(withTitles: DeinterlaceMode.allCases.map(\.title))
+            deinterlacePopup.target = self
+            deinterlacePopup.action = #selector(onDeinterlaceModeChanged(_:))
+            processingStack.addArrangedSubview(makeRow(label: "隔行反交错:", control: deinterlacePopup))
+            let tip = NSTextField(wrappingLabelWithString: "用于 50i/60i 隔行视频文件。逐行视频保持关闭或自动，不使用主机抽帧逻辑。")
+            tip.font = .systemFont(ofSize: 11.5)
+            tip.textColor = .secondaryLabelColor
+            processingStack.addArrangedSubview(tip)
+            tip.widthAnchor.constraint(equalTo: processingStack.widthAnchor).isActive = true
+        }
+        hdrToneMappingPopup.addItems(withTitles: HDRToneMappingMode.allCases.map(\.title))
+        hdrToneMappingPopup.target = self
+        hdrToneMappingPopup.action = #selector(onHDRToneMappingChanged(_:))
+        processingStack.addArrangedSubview(makeRow(label: "HDR 转 SDR:", control: hdrToneMappingPopup))
+        let colorTip = NSTextField(wrappingLabelWithString: inputKind == .videoFile
+            ? "仅处理当前视频文件的 HDR 色调映射，不改动采集卡参数。"
+            : "采集色彩范围与矩阵在输入格式窗口设置；这里仅控制本链路的 HDR 色调映射。")
+        colorTip.font = .systemFont(ofSize: 11.5)
+        colorTip.textColor = .secondaryLabelColor
+        processingStack.addArrangedSubview(colorTip)
+        colorTip.widthAnchor.constraint(equalTo: processingStack.widthAnchor).isActive = true
+        processingCard.contentView.addSubview(processingStack)
+        processingStack.translatesAutoresizingMaskIntoConstraints = false
+        pinToEdges(processingStack, in: processingCard.contentView)
+        rootStack.addArrangedSubview(processingCard.container)
+        processingCard.container.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36).isActive = true
 
         // 7. 底部工具条
         let bottomRow = NSStackView()
@@ -567,8 +600,10 @@ final class RIFEConfigPanelController: NSWindowController {
     // MARK: - 读取与写回 Settings
 
     private func loadFromSettings() {
+        window?.title = settings.inputKind.title + "补帧 · 独立配置"
         isUpdatingUI = true
-        let s = PlaybackSettings.shared
+        let s = settings
+        statusIndicator.stringValue = inputKind == .videoFile ? "仅用于视频文件" : "仅用于采集卡"
 
         // 1. 速率
         switch s.rifeRateMode {
@@ -607,12 +642,18 @@ final class RIFEConfigPanelController: NSWindowController {
         }
         precisionRow?.isHidden = s.availableComputePrecisions.count <= 1
         precisionInfoLabel.stringValue = "数值精度：" + s.computePrecisionDescription
-        latencyPopup.selectItem(at: CaptureLowLatencyMode.allCases.firstIndex(of: s.captureLowLatencyMode) ?? 1)
+        if inputKind == .captureCard {
+            latencyPopup.selectItem(at: CaptureLowLatencyMode.allCases.firstIndex(of: s.captureLowLatencyMode) ?? 1)
+            console30Popup.selectItem(at: Fake60OptimizationMode.allCases.firstIndex(of: s.fake60FPSOptimization) ?? 0)
+        }
+        resolutionTip.stringValue = s.interpolationBackend == .rifeCoreML || s.interpolationBackend == .rifeMetalFast
+            ? "只降低运动估计预算，最终用源尺寸画面融合。此设置与输出分辨率、目标帧率独立。"
+            : "系统模型按此尺寸推理后恢复输出尺寸。降低此值会减少计算量，也可能让中间帧偏软；这不是独立的内部光流精度控制。"
 
         resPopup.removeAllItems()
         resPopup.addItems(withTitles: s.availableFlowResolutions.map {
             s.interpolationBackend == .rifeMetalFast
-                ? "输入上限 \($0.height)p · Fast 1/4 光流" : $0.title
+                ? "推理预算 \($0.height)p · 原尺寸合成" : $0.title
         })
         resPopup.selectItem(at: s.availableFlowResolutions.firstIndex(of: s.interpolationFlowResolution) ?? 0)
 
@@ -628,7 +669,7 @@ final class RIFEConfigPanelController: NSWindowController {
         staticThresholdLabel.stringValue = String(format: "%.1f%%", s.rifeStaticThreshold * 100)
 
         // 7. 隔行反交错
-        if let deintIdx = DeinterlaceMode.allCases.firstIndex(of: s.deinterlaceMode) {
+        if inputKind == .videoFile, let deintIdx = DeinterlaceMode.allCases.firstIndex(of: s.deinterlaceMode) {
             deinterlacePopup.selectItem(at: deintIdx)
         }
 
@@ -641,7 +682,8 @@ final class RIFEConfigPanelController: NSWindowController {
     }
 
     private func updateBackendControls() {
-        let isRIFE = PlaybackSettings.shared.interpolationBackend == .rifeCoreML
+        let isRIFE = settings.interpolationBackend == .rifeCoreML
+        protectionCard?.isHidden = !isRIFE
         // The legacy block-matching parameters are not controls for the CoreML
         // weights or the system model. Do not offer knobs that cannot take effect.
         resPopup.isEnabled = true
@@ -662,7 +704,7 @@ final class RIFEConfigPanelController: NSWindowController {
     @objc private func onRateModeChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
         let idx = rateModePopup.indexOfSelectedItem
-        let s = PlaybackSettings.shared
+        let s = settings
         switch idx {
         case 0: s.rifeRateMode = .off
         case 1: s.rifeRateMode = .x2
@@ -681,39 +723,48 @@ final class RIFEConfigPanelController: NSWindowController {
         guard !isUpdatingUI else { return }
         let val = round(customFpsSlider.doubleValue * 2) / 2
         customFpsLabel.stringValue = String(format: "%.1f FPS", val)
-        PlaybackSettings.shared.rifeCustomTargetFps = val
+        settings.rifeCustomTargetFps = val
     }
 
     @objc private func onBackendChanged(_ sender: Any?) {
         guard !isUpdatingUI, InterpolationBackend.allCases.indices.contains(backendPopup.indexOfSelectedItem) else { return }
-        PlaybackSettings.shared.interpolationBackend = InterpolationBackend.allCases[backendPopup.indexOfSelectedItem]
+        settings.interpolationBackend = InterpolationBackend.allCases[backendPopup.indexOfSelectedItem]
     }
+
+    @objc private func onConsole30Changed(_ sender: Any?) {
+        guard !isUpdatingUI, inputKind == .captureCard,
+              Fake60OptimizationMode.allCases.indices.contains(console30Popup.indexOfSelectedItem) else { return }
+        settings.fake60FPSOptimization = Fake60OptimizationMode.allCases[console30Popup.indexOfSelectedItem]
+        if settings.fake60FPSOptimization == .on { settings.rifeRateMode = .fps60 }
+    }
+
+    @objc private func onOpenCaptureDevice(_ sender: Any?) { onOpenCaptureDevice?() }
 
     @objc private func onLatencyChanged(_ sender: Any?) {
         guard !isUpdatingUI, CaptureLowLatencyMode.allCases.indices.contains(latencyPopup.indexOfSelectedItem) else { return }
-        PlaybackSettings.shared.captureLowLatencyMode = CaptureLowLatencyMode.allCases[latencyPopup.indexOfSelectedItem]
+        settings.captureLowLatencyMode = CaptureLowLatencyMode.allCases[latencyPopup.indexOfSelectedItem]
     }
 
     @objc private func onModelChanged(_ sender: Any?) {
-        guard !isUpdatingUI, PlaybackSettings.shared.interpolationBackend == .rifeCoreML else { return }
+        guard !isUpdatingUI, settings.interpolationBackend == .rifeCoreML else { return }
         let models = RIFEModelChoice.allCases
         let index = modelPopup.indexOfSelectedItem
         guard models.indices.contains(index) else { return }
-        PlaybackSettings.shared.rifeModel = models[index]
+        settings.rifeModel = models[index]
     }
 
     private func updateModelTip(_ model: RIFEModelChoice) {
-        if PlaybackSettings.shared.interpolationBackend == .rifeMetalFast {
+        if settings.interpolationBackend == .rifeMetalFast {
             modelTipBadge.configure(
-                text: "RifeMetal Fast：两帧画面输入，RIFE 4.25 FP16，内部以对齐后输入的 1/4 尺寸估计光流。下方选择输入尺寸上限；原帧保留，中间帧恢复源尺寸。支持 SDR 2X，失败回退 Core ML RIFE；实时性能待实测。",
+                text: "RifeMetal Fast：RIFE 4.25 FP16。下方只控制内部光流推理预算，输入原图保持源尺寸；中间帧通过放大的光流在原图上变形融合，避免低分辨率中间帧直接放大造成清晰度交替。支持 SDR 2X，失败回退 Core ML RIFE。",
                 theme: .cyan)
-        } else if PlaybackSettings.shared.interpolationBackend == .metalFX {
+        } else if settings.interpolationBackend == .metalFX {
             modelTipBadge.configure(
                 text: "MetalFX 实验性补帧：由画面估算光流，深度采用平面近似，可能重影；尚未验证性能。仅支持 SDR 2X，需 macOS 26 及支持的 GPU；失败使用 RIFE 回退。数值精度由系统管理。",
                 theme: .cyan)
-        } else if PlaybackSettings.shared.interpolationBackend == .appleVideoToolbox {
+        } else if settings.interpolationBackend == .appleVideoToolbox {
             modelTipBadge.configure(
-                text: "Apple 系统模型：光流推理分辨率独立可选，原始帧保持源画质。系统不开放数值精度控制。支持2X；不支持的格式或帧率使用RIFE回退配置。",
+                text: "Apple 系统模型：推理分辨率独立可选，原始帧保持源画质；中间帧直接使用系统模型输出，不用源图替代。低于源尺寸推理时，中间帧清晰度可能下降；需要原图运动融合时可选 RIFE 或 RifeMetal Fast。系统不开放数值精度控制。支持2X；不支持时使用RIFE回退配置。",
                 theme: .cyan)
         } else {
             modelTipBadge.configure(
@@ -724,22 +775,22 @@ final class RIFEConfigPanelController: NSWindowController {
 
     @objc private func onPrecisionChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
-        let choices = PlaybackSettings.shared.availableComputePrecisions
+        let choices = settings.availableComputePrecisions
         guard choices.indices.contains(precisionPopup.indexOfSelectedItem) else { return }
-        PlaybackSettings.shared.rifePrecision = choices[precisionPopup.indexOfSelectedItem]
+        settings.rifePrecision = choices[precisionPopup.indexOfSelectedItem]
     }
 
     @objc private func onResolutionChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
-        let choices = PlaybackSettings.shared.availableFlowResolutions
+        let choices = settings.availableFlowResolutions
         guard choices.indices.contains(resPopup.indexOfSelectedItem) else { return }
-        PlaybackSettings.shared.interpolationFlowResolution = choices[resPopup.indexOfSelectedItem]
+        settings.interpolationFlowResolution = choices[resPopup.indexOfSelectedItem]
     }
 
     @objc private func onSceneDetectionToggled(_ sender: Any?) {
         guard !isUpdatingUI else { return }
         let on = (sceneDetectionCheckbox.state == .on)
-        PlaybackSettings.shared.rifeTransitionDetection = on
+        settings.rifeTransitionDetection = on
         sceneThresholdSlider.isEnabled = on
     }
 
@@ -747,13 +798,13 @@ final class RIFEConfigPanelController: NSWindowController {
         guard !isUpdatingUI else { return }
         let val = round(sceneThresholdSlider.doubleValue * 20) / 20
         sceneThresholdLabel.stringValue = String(format: "%.0f%%", val * 100)
-        PlaybackSettings.shared.rifeSceneThreshold = val
+        settings.rifeSceneThreshold = val
     }
 
     @objc private func onStaticSkipToggled(_ sender: Any?) {
         guard !isUpdatingUI else { return }
         let on = (staticSkipCheckbox.state == .on)
-        PlaybackSettings.shared.rifeStaticFrameSkip = on
+        settings.rifeStaticFrameSkip = on
         staticThresholdSlider.isEnabled = on
     }
 
@@ -761,14 +812,14 @@ final class RIFEConfigPanelController: NSWindowController {
         guard !isUpdatingUI else { return }
         let val = round(staticThresholdSlider.doubleValue * 200) / 200
         staticThresholdLabel.stringValue = String(format: "%.1f%%", val * 100)
-        PlaybackSettings.shared.rifeStaticThreshold = val
+        settings.rifeStaticThreshold = val
     }
 
     @objc private func onDeinterlaceModeChanged(_ sender: Any?) {
         guard !isUpdatingUI else { return }
         let idx = deinterlacePopup.indexOfSelectedItem
         if idx >= 0 && idx < DeinterlaceMode.allCases.count {
-            PlaybackSettings.shared.deinterlaceMode = DeinterlaceMode.allCases[idx]
+            settings.deinterlaceMode = DeinterlaceMode.allCases[idx]
         }
     }
 
@@ -777,14 +828,14 @@ final class RIFEConfigPanelController: NSWindowController {
         let idx = hdrToneMappingPopup.indexOfSelectedItem
         if idx >= 0 && idx < HDRToneMappingMode.allCases.count {
             let mode = HDRToneMappingMode.allCases[idx]
-            PlaybackSettings.shared.hdrToneMapping = mode
+            settings.hdrToneMapping = mode
             statusIndicator.stringValue = "● 已切换 HDR 转 SDR: \(mode.title)"
         }
     }
 
 
     @objc private func onResetDefaults(_ sender: Any?) {
-        PlaybackSettings.shared.resetRIFEToDefaults()
+        settings.resetRIFEToDefaults()
         loadFromSettings()
     }
 

@@ -1,0 +1,108 @@
+video moving detail: naive MAE 28.00, restored 0.06, held source 5.65, contrast 100.0%, GPU wait 9.91ms
+full moving detail: naive MAE 28.00, restored 0.27, held source 5.66, contrast 100.0%, GPU wait 2.61ms
+2026-11-16 23:41:59.145 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.146 source-detail-tests[26619:4670055] Resolved compile flags: (
+    "",
+    SpatialSplitGenericDAG,
+    ""
+)
+2026-11-16 23:41:59.191 source-detail-tests[26619:4670055] [AppleInterpolation] 会话就绪: 1024x576 → 1920x1080（原帧保留）
+PASS: moving fine-detail recovery, genuine midpoint geometry, source identity and full/video-range conversion
+Apple576 YUVS midpoint 1: MAE 0.07 vs resize 28.00, contrast 99.9%, complete pair 24.27ms
+Apple576 YUVS midpoint 2: MAE 0.07 vs resize 28.00, contrast 100.0%, complete pair 19.13ms
+Apple576 YUVS midpoint 3: MAE 0.07 vs resize 28.00, contrast 99.9%, complete pair 22.07ms
+PASS: real Apple 576p AI with 1080p60 YUVS sources, moving texture and original-frame identity

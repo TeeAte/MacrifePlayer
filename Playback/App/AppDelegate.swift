@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `--dump-exit`：dump 完就退出。
         // 为什么需要：通过 `open` 起的进程不归当前 shell 管，dump 完不退出就会
         // 一直在窗口里放着，下一次跑又多一个实例（还会抢窗口焦点）。
-        if DevFlag.on("MP_DUMP_EXIT", "--dump-exit") {
+        if DevFlag.on("MP_DUMP_EXIT", "--dump-exit"), !DevFlag.on("MP_CAPTURE_GO", "--capture-go") {
             let captureHold = DevFlag.on("MP_CAPTURE_GO", "--capture-go")
                 ? max(0, Double(DevFlag.value("MP_CAPTURE_HOLD", "--capture-hold") ?? "") ?? 6.0) : 0
             DispatchQueue.main.asyncAfter(deadline: .now() + dumpDelay + captureHold + 0.8) {
@@ -395,6 +395,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hold = Double(DevFlag.value("MP_CAPTURE_HOLD", "--capture-hold") ?? "") ?? 6.0
             DispatchQueue.main.asyncAfter(deadline: .now() + hold) {
                 self.emit(self.container?.captureDiagnosticsText() ?? "\n(无容器)\n")
+                // Capture/model startup may take longer than the old fixed
+                // exit margin. Finish diagnostics before terminating.
+                if DevFlag.on("MP_DUMP_EXIT", "--dump-exit") { NSApp.terminate(nil) }
             }
         }
     }
@@ -770,6 +773,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createMainWindow() {
         let wc = PlayerWindowController()
         windowController = wc
+        RIFEConfigPanelController.forInput(.captureCard).onOpenCaptureDevice = { [weak wc] in
+            wc?.openCaptureDeviceWithPanel()
+        }
 
         wc.onCurrentChanged = { [weak self] _ in
             // 换了文件 → 音轨/字幕菜单要重建（它们的内容随文件变），
@@ -800,13 +806,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(makeFileMenu())
         mainMenu.addItem(makeAudioTrackMenu())
         mainMenu.addItem(makeSubtitleMenu())
-        mainMenu.addItem(makeModelMenu())
+        mainMenu.addItem(makeInputSettingsItem(.videoFile))
+        mainMenu.addItem(makeInputSettingsItem(.captureCard))
 
-        let workers = makeRIFEWorkerMenu()
-        rifeWorkerMenu = workers.submenu
-        mainMenu.addItem(workers)
-
-        // 到这里为止，菜单栏就是完整的六个：应用 / 文件 / 音轨 / 字幕 / 模型 / RIFE核心。
+        // 视频和采集卡各自提供固定配置入口。
         //
         // ── 为什么**没有**「窗口」菜单（第一版做错了，这里记一笔）──
         //
@@ -942,6 +945,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.submenu = menu
         subtitleTrackMenu = menu
         return item
+    }
+
+    private func makeInputSettingsItem(_ kind: PlaybackInputKind) -> NSMenuItem {
+        let title = kind == .videoFile ? "视频" : "采集卡"
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let menu = NSMenu(title: title)
+        item.submenu = menu
+
+        let settingsItem = NSMenuItem(title: "\(title)补帧设置…",
+                                      action: #selector(openInputSettingsMenuAction(_:)), keyEquivalent: "")
+        settingsItem.target = self
+        settingsItem.representedObject = kind
+        menu.addItem(settingsItem)
+        if kind == .captureCard {
+            menu.addItem(.separator())
+            let inputItem = NSMenuItem(title: "采集设备与输入格式…",
+                                      action: #selector(openCaptureDeviceMenuAction(_:)), keyEquivalent: "")
+            inputItem.target = self
+            menu.addItem(inputItem)
+        }
+        return item
+    }
+
+    @objc private func openInputSettingsMenuAction(_ sender: NSMenuItem) {
+        guard let kind = sender.representedObject as? PlaybackInputKind else { return }
+        let panel = RIFEConfigPanelController.forInput(kind)
+        panel.show(relativeTo: windowController?.window)
     }
 
     private func makeModelMenu() -> NSMenuItem {

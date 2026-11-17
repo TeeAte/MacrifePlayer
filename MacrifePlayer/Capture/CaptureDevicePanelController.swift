@@ -43,7 +43,7 @@ private struct CaptureFormatOption {
         switch subType {
         case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange: return "NV12"
         case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:  return "NV12(f)"
-        case kCVPixelFormatType_422YpCbCr8_yuvs:              return "YUY2"
+        case kCVPixelFormatType_422YpCbCr8_yuvs:              return "YUVS / YUY2"
         case kCVPixelFormatType_422YpCbCr8:                   return "UYVY"
         case kCVPixelFormatType_32BGRA:                       return "BGRA"
         case kCVPixelFormatType_24RGB:                        return "RGB"
@@ -100,7 +100,7 @@ private struct CaptureFormatOption {
              kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
             quality = "原生双平面 NV12（零转换直出）"
         case kCVPixelFormatType_422YpCbCr8_yuvs:
-            quality = "原生 4:2:2（色度不横向减半 · 彩色细节更实；运行时转 NV12 后可补帧）"
+            quality = "原生 YUVS 4:2:2（Metal GPU直通；补帧时GPU转换，无需视频解码）"
         default:
             quality = "需转码"
         }
@@ -136,6 +136,7 @@ final class CaptureDevicePanelController: NSWindowController {
     private var audioDevices: [AVCaptureDevice] = []
     /// 与 formatPopup 的条目一一对应的真实规格（索引 0 是「设备当前默认」占位）。
     private var formatOptions: [CaptureFormatOption] = []
+    private var formatsDeviceID: String?
 
     // MARK: - UI 控件
     private let videoDevicePopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -330,7 +331,7 @@ final class CaptureDevicePanelController: NSWindowController {
         formatStack.addArrangedSubview(formatDetailLabel)
         makeWrappingLabel(formatDetailLabel, in: formatStack)
 
-        let formatTip = NSTextField(labelWithString: "📋 分辨率与帧率均来自采集卡实时上报，只列它真正支持的组合。帧率按设备原生的精确时长锁定，选多少就是多少。")
+        let formatTip = NSTextField(labelWithString: "📋 这里只设置 USB 采集模式；HDMI 输出分辨率需在主机上设置。禁用缩放的采集卡固件需要两者匹配，否则可能出现黑边或裁切。实际格式与帧率可按 Tab 查看。")
         formatTip.font = .systemFont(ofSize: 11, weight: .regular)
         formatTip.textColor = NSColor(white: 0.65, alpha: 1.0)
         formatStack.addArrangedSubview(formatTip)
@@ -547,6 +548,21 @@ final class CaptureDevicePanelController: NSWindowController {
     /// 旧版的问题恰恰是「列表上是 A、交出去的是 B」（选 4K 交出去 1080p、选 60 交出去预设值）。
     /// 光看列表对不对证明不了契约，必须把真正交出去的那四个值打出来。
     func devStart() {
+        let requestedSize = DevFlag.value("MP_CAPTURE_SIZE", "--capture-size")
+        let requestedPixel = DevFlag.value("MP_CAPTURE_PIXEL", "--capture-pixel")
+        if requestedSize != nil || requestedPixel != nil {
+            guard let index = formatOptions.indices.first(where: { index in
+                let option = formatOptions[index]
+                return option.width > 0
+                    && (requestedSize == nil || requestedSize == "\(option.width)x\(option.height)")
+                    && (requestedPixel == nil || requestedPixel == CaptureFormatFourCC.text(option.subType))
+            }) else {
+                NSLog("[Capture] 测试请求的采集规格不存在")
+                return
+            }
+            formatPopup.selectItem(at: index)
+            reloadFrameRates()
+        }
         if let raw = DevFlag.value("MP_CAPTURE_FPS", "--capture-fps"), let requested = Double(raw) {
             let index = formatPopup.indexOfSelectedItem
             guard formatOptions.indices.contains(index),
@@ -723,6 +739,12 @@ final class CaptureDevicePanelController: NSWindowController {
     /// 旧版是硬编码 7 条预设（含设备压根不存在的 4K@60），选了不支持的会静默回落；
     /// 现在列表里出现的每一项都是设备自己上报的，选哪个就一定拿到哪个。
     func reloadFormats() {
+        let previousOption = formatOptions.indices.contains(formatPopup.indexOfSelectedItem)
+            ? formatOptions[formatPopup.indexOfSelectedItem] : nil
+        let previousRateIndex = fpsPopup.indexOfSelectedItem
+        let previousFPS = previousOption.flatMap {
+            $0.frameRates.indices.contains(previousRateIndex) ? $0.frameRates[previousRateIndex] : nil
+        } ?? 0
         formatPopup.removeAllItems()
         formatOptions.removeAll()
 
@@ -813,11 +835,25 @@ final class CaptureDevicePanelController: NSWindowController {
 
         formatPopup.isEnabled = true
 
-        // 默认选中设备能力最强的原生 NV12 规格；没有 NV12 就选列表第一条。
-        let preferred = list.firstIndex { $0.isNativeNV12 } ?? 0
-        let selectIndex = list.isEmpty ? 0 : preferred + 1
-        formatPopup.selectItem(at: selectIndex)
+        // A resolution-first default picked 4K18 on an unlocked MS2130.
+        // Prefer the OBS-verified 1080p60 YUY2 mode for interactive capture.
+        let previousIndex = formatsDeviceID == device.uniqueID ? list.firstIndex {
+            $0.width == previousOption?.width && $0.height == previousOption?.height
+                && $0.subType == previousOption?.subType
+        } : nil
+        let preferred = previousIndex
+            ?? list.firstIndex { $0.width == 1920 && $0.height == 1080 && $0.maxFPS >= 59
+                && $0.subType == kCVPixelFormatType_422YpCbCr8_yuvs }
+            ?? list.firstIndex { $0.width == 1920 && $0.height == 1080 && $0.maxFPS >= 59 }
+            ?? list.indices.max { list[$0].maxFPS < list[$1].maxFPS } ?? 0
+        formatsDeviceID = device.uniqueID
+        formatPopup.selectItem(at: preferred + 1)
         reloadFrameRates()
+        if previousIndex != nil,
+           let rateIndex = list[preferred].frameRates.firstIndex(where: { abs($0 - previousFPS) < 0.1 }) {
+            fpsPopup.selectItem(at: rateIndex)
+            updateFormatDetail()
+        }
     }
 
     /// 帧率档位随选中的分辨率联动重建 —— 只列这个分辨率**真的支持**的档位。
@@ -839,6 +875,16 @@ final class CaptureDevicePanelController: NSWindowController {
         }
         fpsPopup.isEnabled = true
         fpsPopup.selectItem(at: 0)   // 默认最高帧率
+        // This MS2130 reports 1440p50, but on this USB path it delivers in
+        // bursts and only ~32 frames/s reach the screen. 1440p30 was stable
+        // with no dropped frames. Keep 50 selectable as an explicit choice.
+        if opt.width == 2560, opt.height == 1440,
+           videoDevices.indices.contains(videoDevicePopup.indexOfSelectedItem),
+           let (vid, pid) = Self.usbVIDPID(from: videoDevices[videoDevicePopup.indexOfSelectedItem].modelID),
+           vid == "345F", pid == "2130",
+           let index = rates.firstIndex(where: { abs($0 - 30) < 0.1 }) {
+            fpsPopup.selectItem(at: index)
+        }
         updateFormatDetail()
     }
 
@@ -882,7 +928,7 @@ final class CaptureDevicePanelController: NSWindowController {
     }
 
     private func syncSettingsToUI() {
-        let s = PlaybackSettings.shared
+        let s = PlaybackSettings.forInput(.captureCard)
         if let idx = CaptureLowLatencyMode.allCases.firstIndex(of: s.captureLowLatencyMode) {
             latencyPopup.selectItem(at: idx)
         }
@@ -924,14 +970,14 @@ final class CaptureDevicePanelController: NSWindowController {
     @objc private func onLatencyChanged(_ sender: Any?) {
         let idx = latencyPopup.indexOfSelectedItem
         if idx >= 0 && idx < CaptureLowLatencyMode.allCases.count {
-            PlaybackSettings.shared.captureLowLatencyMode = CaptureLowLatencyMode.allCases[idx]
+            PlaybackSettings.forInput(.captureCard).captureLowLatencyMode = CaptureLowLatencyMode.allCases[idx]
         }
     }
 
     @objc private func onFake60Changed(_ sender: Any?) {
         let idx = fake60Popup.indexOfSelectedItem
         if idx >= 0 && idx < Fake60OptimizationMode.allCases.count {
-            PlaybackSettings.shared.fake60FPSOptimization = Fake60OptimizationMode.allCases[idx]
+            PlaybackSettings.forInput(.captureCard).fake60FPSOptimization = Fake60OptimizationMode.allCases[idx]
             if Fake60OptimizationMode.allCases[idx] == .on {
                 _ = selectConsole30CaptureRate()
             }
@@ -960,11 +1006,11 @@ final class CaptureDevicePanelController: NSWindowController {
     @objc private func onColorChanged(_ sender: Any?) {
         let r = colorRangePopup.indexOfSelectedItem
         if r >= 0 && r < CaptureColorRange.allCases.count {
-            PlaybackSettings.shared.captureColorRange = CaptureColorRange.allCases[r]
+            PlaybackSettings.forInput(.captureCard).captureColorRange = CaptureColorRange.allCases[r]
         }
         let m = colorMatrixPopup.indexOfSelectedItem
         if m >= 0 && m < CaptureColorMatrix.allCases.count {
-            PlaybackSettings.shared.captureColorMatrix = CaptureColorMatrix.allCases[m]
+            PlaybackSettings.forInput(.captureCard).captureColorMatrix = CaptureColorMatrix.allCases[m]
         }
     }
 
@@ -975,12 +1021,12 @@ final class CaptureDevicePanelController: NSWindowController {
     @objc private func onStartClicked(_ sender: Any?) {
         guard !videoDevices.isEmpty else { return }
         onFake60Changed(self)
-        if PlaybackSettings.shared.fake60FPSOptimization == .on {
+        if PlaybackSettings.forInput(.captureCard).fake60FPSOptimization == .on {
             guard selectConsole30CaptureRate() else {
                 deviceStatusLabel.stringValue = "当前设备不支持 60FPS 采集，请选择原始输入"
                 return
             }
-            PlaybackSettings.shared.rifeRateMode = .fps60
+            PlaybackSettings.forInput(.captureCard).rifeRateMode = .fps60
         }
         let vIndex = max(0, min(videoDevicePopup.indexOfSelectedItem, videoDevices.count - 1))
         let selectedVideo = videoDevices[vIndex]

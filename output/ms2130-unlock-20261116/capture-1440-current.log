@@ -1,0 +1,31 @@
+2026-11-16 22:24:16.398 Macrife Player[11726:4570272] [ModelPackageManager] 缓存模型包已就绪: /Users/teeate/Library/Application Support/MacrifePlayer/Models
+2026-11-16 22:24:17.856 Macrife Player[11726:4570270] [Capture] 启动 USB3 Video · 2560×1440 · 30.00 FPS · 锁定时长=1000000/30000030 · 音频=USB3 Digital Audio
+[PlaybackEngine] 采集请求: 2560×1440 · yuvs · 30.00003000003 fps
+[PlaybackEngine] 采集卡帧率已锁定(启动后修复): 目标 30.00 fps | 设备读回 30.00 fps | 连接读回 30.00 fps
+[PlaybackEngine] 采集启动后格式: 2560×1440 · 设备 yuvs · 输出 yuvs
+[PlaybackEngine] 采集色彩: BT.709 · 限制 16–235 · 来源=缓冲附件
+[PlaybackEngine] 采集实际样本: 2560×1440 · yuvs · Metal GPU 显示（未压缩，无需视频解码）
+[PlaybackEngine] 首帧上屏 pts=0.033s [采集低延迟 · AI补帧=false]
+
+应用内画面滞后约 20.0 ms（不含采集卡与屏幕） · 最近240帧 P50 2.0 / P95 7.7 ms · 待处理 0 · AI输入 0 · 在途 0对 · 全程平均 29.97 fps
+补帧: 待命 · 已生成 0 帧
+主机30模式 关闭 · 内容 30.00 fps · 固定隔帧跳过 0 帧
+[采集诊断] 实测投递 30.30 fps | 渲染 29.80 fps | 上屏 306 帧 | 丢帧 2
+  色彩: BT.709 · 限制 16–235 · 来源=缓冲附件
+  队列: PipelineQueueDepths(videoPacket: 0, videoPacketCapacity: 200, audioPacket: 0, audioPacketCapacity: 128, frame: 0, frameCapacity: 1)
+2026-11-16 22:33:27.125 Macrife Player[11726:4570270] [Capture] 启动 USB3 Video · 2560×1440 · 50.00 FPS · 锁定时长=1000000/50000000 · 音频=USB3 Digital Audio
+[PlaybackEngine] 采集请求: 2560×1440 · yuvs · 50.0 fps
+[PlaybackEngine] 采集卡帧率已锁定(启动后修复): 目标 50.00 fps | 设备读回 50.00 fps | 连接读回 50.00 fps
+[PlaybackEngine] 采集启动后格式: 2560×1440 · 设备 yuvs · 输出 yuvs
+[PlaybackEngine] 采集色彩: BT.709 · 限制 16–235 · 来源=缓冲附件
+[PlaybackEngine] 采集实际样本: 2560×1440 · yuvs · Metal GPU 显示（未压缩，无需视频解码）
+[PlaybackEngine] 首帧上屏 pts=0.000s [采集低延迟 · AI补帧=false]
+[PlaybackEngine] ⚠️ 采集帧率不符：请求 50 fps，实测仅 31.9 fps（可能受 USB 带宽、HDMI 输入节奏或驱动影响）
+2026-11-16 22:33:40.423 Macrife Player[11726:4570270] [Capture] 启动 USB3 Video · 1920×1080 · 60.00 FPS · 锁定时长=1000000/60000240 · 音频=USB3 Digital Audio
+[PlaybackEngine] 采集请求: 1920×1080 · yuvs · 60.000240000960005 fps
+[PlaybackEngine] 采集卡帧率已锁定(启动后修复): 目标 60.00 fps | 设备读回 60.00 fps | 连接读回 60.00 fps
+[PlaybackEngine] 采集启动后格式: 1920×1080 · 设备 yuvs · 输出 yuvs
+[PlaybackEngine] 采集色彩: BT.709 · 限制 16–235 · 来源=缓冲附件
+[PlaybackEngine] 采集实际样本: 1920×1080 · yuvs · Metal GPU 显示（未压缩，无需视频解码）
+[PlaybackEngine] 首帧上屏 pts=0.017s [采集低延迟 · AI补帧=false]
+[PlaybackEngine] 状态变迁: playing -> idle

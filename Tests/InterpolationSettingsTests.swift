@@ -3,6 +3,7 @@ import Foundation
 @main
 enum InterpolationSettingsTests {
     static func main() {
+        testIndependentInputProfiles()
         withDefaults { defaults in
             defaults.set("appleLowLatency", forKey: PlaybackSettings.Key.rifeModel.rawValue)
             defaults.set("extreme", forKey: PlaybackSettings.Key.captureLowLatencyMode.rawValue)
@@ -50,6 +51,8 @@ enum InterpolationSettingsTests {
             settings.interpolationBackend = .rifeCoreML
             precondition(settings.captureLowLatencyMode == .extreme && settings.rifeModel == .heavy426)
             settings.captureLowLatencyMode = .off
+            precondition(settings.captureLowLatencyMode == .balanced)
+            precondition(!CaptureLowLatencyMode.allCases.contains(.off), "Do not offer a duplicate file-buffering mode for live capture")
             precondition(settings.rifeModel == .heavy426 && settings.interpolationFlowResolution == .p576)
         }
         withDefaults { defaults in
@@ -119,7 +122,55 @@ enum InterpolationSettingsTests {
         precondition(full.width == 1920 && full.height == 1080, "Inference quality must not upscale the source")
         let smaller = InferenceGeometry.fit(sourceWidth: 1920, sourceHeight: 1080, maxHeight: 576)
         precondition(smaller.width == 1024 && smaller.height == 576)
-        print("PASS: 9 configuration checks (migration, profiles, persistence, latency independence, precision capabilities, MetalFX/RifeMetal profiles, model variants, inference geometry); no GPU/model execution")
+        print("PASS: 10 configuration groups including independent file/capture settings, one-time migration and bound processing profiles; no GPU/model execution")
+    }
+
+    static func testIndependentInputProfiles() {
+        withDefaults { defaults in
+            defaults.set("x2", forKey: PlaybackSettings.Key.rifeRateMode.rawValue)
+            defaults.set("appleVideoToolbox", forKey: PlaybackSettings.Key.interpolationBackend.rawValue)
+            defaults.set("p720", forKey: "macrife.interpolation.apple.flowResolution")
+            let file = PlaybackSettings(defaults: defaults, inputKind: .videoFile)
+            let capture = PlaybackSettings(defaults: defaults, inputKind: .captureCard)
+            precondition(capture.rifeRateMode == .x2 && capture.interpolationFlowResolution == .p720)
+            capture.interpolationBackend = .rifeMetalFast
+            capture.interpolationFlowResolution = .p576
+            capture.rifeRateMode = .fps60
+            precondition(file.interpolationBackend == .appleVideoToolbox && file.rifeRateMode == .x2)
+            precondition(file.interpolationFlowResolution == .p720)
+            file.interpolationFlowResolution = .p1080
+            let reopened = PlaybackSettings(defaults: defaults, inputKind: .captureCard)
+            precondition(reopened.interpolationBackend == .rifeMetalFast && reopened.rifeRateMode == .fps60)
+            precondition(reopened.interpolationFlowResolution == .p576)
+            reopened.interpolationBackend = .appleVideoToolbox
+            precondition(reopened.interpolationFlowResolution == .p720, "Capture must keep its copied profile after a file preference changes")
+            let ui = PlaybackSettings(defaults: defaults)
+            ui.selectInput(.captureCard)
+            ui.rifeRateMode = .fps120
+            precondition(capture.rifeRateMode == .fps120 && file.rifeRateMode == .x2)
+            ui.selectInput(.videoFile)
+            precondition(ui.rifeRateMode == .x2)
+            capture.selectInput(.videoFile)
+            precondition(capture.inputKind == .captureCard, "A processing profile must not follow UI source changes")
+            file.rifeRateMode = .customFps
+            file.rifeCustomTargetFps = 48
+            capture.rifeRateMode = .customFps
+            capture.rifeCustomTargetFps = 90
+            precondition(file.interpolationTargetFrameRate(source: 24) == 48)
+            precondition(capture.interpolationTargetFrameRate(source: 30) == 90)
+            ui.selectInput(.captureCard)
+            precondition(file.interpolationTargetFrameRate(source: 24) == 48, "Custom file targets must not follow the UI profile")
+            capture.rifeRateMode = .fps120
+            capture.volume = 0.4
+            precondition(abs(file.volume - 0.4) < 0.001, "Volume remains a shared player control")
+            file.hdrToneMapping = .off
+            capture.hdrToneMapping = .aces
+            precondition(file.hdrToneMapping == .off && capture.hdrToneMapping == .aces)
+            capture.fake60FPSOptimization = .on
+            file.resetRIFEToDefaults()
+            precondition(capture.fake60FPSOptimization == .on, "Video defaults must not change host30 settings")
+            precondition(capture.rifeRateMode == .fps120, "Reset only the chosen input's profile")
+        }
     }
 
     private static func withDefaults(_ body: (UserDefaults) -> Void) {

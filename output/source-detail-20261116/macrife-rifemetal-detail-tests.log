@@ -1,0 +1,5 @@
+RifeMetal 576 budget / 1080p source: static fine-detail MAE 0.000, pair 1383.46ms
+RifeMetal 576 budget / 1080p source: static fine-detail MAE 0.000, pair 25.53ms
+RifeMetal 576 budget / 1080p source: static fine-detail MAE 0.000, pair 19.12ms
+RifeMetal Fast · RIFE 4.25 FP16 · 原尺寸合成 1920×1080 · 光流 256×192 · 处理均耗 474.9 ms
+PASS: RifeMetal 576 inference budget, full-resolution warp/cropped output, static detail, original identity and actual generated frames

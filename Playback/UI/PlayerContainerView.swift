@@ -441,6 +441,8 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(settingsDidChange(_:)),
             name: .playbackSettingsDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange(_:)),
+            name: .playbackInputProfileDidChange, object: nil)
 
         // 应用将要退出时保存当前播放进度
         NotificationCenter.default.addObserver(
@@ -1053,6 +1055,12 @@ final class PlayerContainerView: NSView, PlaybackEngineDelegate {
             DispatchQueue.main.async { [weak self] in self?.settingsDidChange(note) }
             return
         }
+        if let changed = note.object as? PlaybackSettings,
+           changed.inputKind != (engine.isCaptureMode ? .captureCard : .videoFile),
+           let key = note.userInfo?["key"] as? PlaybackSettings.Key,
+           key.rawValue.hasPrefix("macrife.rife") || key.rawValue.hasPrefix("macrife.interpolation")
+                || [.hdrToneMapping, .deinterlaceMode, .captureLowLatencyMode, .fake60FPSOptimization,
+                    .captureColorRange, .captureColorMatrix].contains(key) { return }
         overlay.refreshFromSettings()
         // ② 那一节直接读设置，改完当场就要反映出来 —— 否则面板上还写着旧档位
         refreshStatsPanel()

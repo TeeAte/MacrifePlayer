@@ -1,0 +1,1 @@
+PASS: 9 configuration checks (migration, profiles, persistence, latency independence, precision capabilities, MetalFX/RifeMetal profiles, model variants, inference geometry); no GPU/model execution

@@ -7,11 +7,19 @@ public final class RifeInterpolator: @unchecked Sendable {
     private let context: InferenceContext
     private let weights: WeightStore
     private let qualityTier: RifeQualityTier
+    private let inferenceDivisor: Int
+    private var paddingMultiple: Int { 64 * inferenceDivisor }
+    private var internalScale: Double { 1.0 / Double(inferenceDivisor) }
     internal let queue = DispatchQueue(label: "rife.metal.interpolator", qos: .userInitiated)
     internal var graph: IFNetGraph?
     private var graphResolution: (Int, Int)?
 
     public init(configuration: RifeConfiguration) throws {
+        let divisor = configuration.inferenceDivisor ?? Int(1.0 / configuration.qualityTier.internalScale)
+        guard (1...16).contains(divisor) else {
+            throw RifeError.inferenceFailed("Inference divisor must be in 1...16")
+        }
+        self.inferenceDivisor = divisor
         do {
             self.context = try InferenceContext(preferredDevice: configuration.preferredDevice)
         } catch {
@@ -59,7 +67,7 @@ public final class RifeInterpolator: @unchecked Sendable {
         }
 
         return try queue.sync {
-            let padMul = qualityTier.paddingMultiple
+            let padMul = paddingMultiple
             let paddedW = ((prevW + padMul - 1) / padMul) * padMul
             let paddedH = ((prevH + padMul - 1) / padMul) * padMul
             let needsPad = (paddedW != prevW) || (paddedH != prevH)
@@ -132,7 +140,7 @@ public final class RifeInterpolator: @unchecked Sendable {
         }
 
         try queue.sync {
-            let padMul  = qualityTier.paddingMultiple
+            let padMul  = paddingMultiple
             let paddedW = ((prevW + padMul - 1) / padMul) * padMul
             let paddedH = ((prevH + padMul - 1) / padMul) * padMul
 
@@ -305,7 +313,7 @@ public final class RifeInterpolator: @unchecked Sendable {
         do {
             let g = try IFNetGraph(context: context, weights: weights,
                                    width: width, height: height,
-                                   internalScale: qualityTier.internalScale)
+                                   internalScale: internalScale)
             self.graph = g
             self.graphResolution = (width, height)
             return g
@@ -320,12 +328,12 @@ public final class RifeInterpolator: @unchecked Sendable {
         guard width > 0, height > 0 else {
             throw RifeError.dimensionMismatch
         }
-        let padMul = qualityTier.paddingMultiple
+        let padMul = paddingMultiple
         let paddedW = ((width + padMul - 1) / padMul) * padMul
         let paddedH = ((height + padMul - 1) / padMul) * padMul
 
         let g = try ensureGraph(width: paddedW, height: paddedH)
-        let intScale = qualityTier.internalScale
+        let intScale = internalScale
         let paddedIntW = Int((Double(paddedW) * intScale).rounded(.toNearestOrAwayFromZero))
         let paddedIntH = Int((Double(paddedH) * intScale).rounded(.toNearestOrAwayFromZero))
 

@@ -20,7 +20,35 @@ enum CaptureLatencyTests {
         testConsole30PreservesPhaseAcrossDrops()
         testConsole30PassesNativeCaptureAndRestarts()
         testConsole30RepeatsCannotReplaceQueuedOriginal()
-        print("PASS: 16 capture latency regression tests")
+        testCaptureTimestampEpochChanges()
+        testFileAndCaptureFrameContexts()
+        print("PASS: 18 capture/context regression tests")
+    }
+
+    static func testFileAndCaptureFrameContexts() {
+        let capture = FrameSourceContext.captureCard(transportFPS: 60, contentFPS: 30)
+        let file = FrameSourceContext.videoFile(fps: 24)
+        precondition(capture.sourceFPS == 30 && capture.isLive)
+        precondition(file.sourceFPS == 24 && !file.isLive)
+        precondition(capture.needsInterpolation(enabled: true, targetFPS: 60))
+        precondition(file.needsInterpolation(enabled: true, targetFPS: 48))
+        precondition(!FrameSourceContext.videoFile(fps: 60).needsInterpolation(enabled: true, targetFPS: 60))
+        precondition(!capture.needsInterpolation(enabled: false, targetFPS: 60))
+    }
+
+    static func testCaptureTimestampEpochChanges() {
+        var mapper = CaptureTimestampMapper()
+        assert(mapper.time(sourceTime: 0, fallbackTime: 0) == nil)
+        assert(mapper.time(sourceTime: .nan, fallbackTime: 0.01) == nil)
+        assert(mapper.time(sourceTime: 272_000, fallbackTime: 0.02) == 0)
+        assert(abs(mapper.time(sourceTime: 272_000.02, fallbackTime: 0.02)! - 0.02) < 0.00001)
+        assert(mapper.time(sourceTime: .nan, fallbackTime: 0.04) == 0.04)
+        assert(mapper.time(sourceTime: 1, fallbackTime: 0.06) == 0.06)
+        assert(abs(mapper.time(sourceTime: 1.02, fallbackTime: 0.08)! - 0.08) < 0.00001)
+        assert(mapper.time(sourceTime: 500_000, fallbackTime: 0.1) == 0.1)
+        mapper.reset()
+        assert(mapper.time(sourceTime: 0, fallbackTime: 0) == nil)
+        assert(mapper.time(sourceTime: 500_001, fallbackTime: 0) == 0)
     }
 
     static func testNewestFramesAndCapacityChanges() {
